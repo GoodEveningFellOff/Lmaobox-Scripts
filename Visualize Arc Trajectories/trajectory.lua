@@ -757,7 +757,6 @@ do
 	aProjectileInfo[10] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecVelocity = Vector3(1200, 0, 200);
-		vecAngularVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(2, 2, 2);
 		flGravity = 1;
 		flDrag = 0.45;
@@ -768,7 +767,6 @@ do
 	);
 	aProjectileInfo[11] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
 		vecVelocity = Vector3(1500, 0, 200);
-		vecAngularVelocity = Vector3(0, 0, 0);
 		flDrag = 0.225;
 	});
 
@@ -877,7 +875,6 @@ do
 
 	AppendItemDefinitions(20,
 		44  -- The Sandman
-		
 	);
 	aProjectileInfo[20] = DefineSimulProjectileDefinition({
 		vecVelocity = Vector3(2985.1118164063, 0, 298.51116943359);
@@ -923,7 +920,6 @@ do
 	aProjectileInfo[24] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecVelocity = Vector3(2000, 0, 200);
-		vecAngularVelocity = Vector3(300, 0, 0);
 		vecMaxs = Vector3(8, 8, 8);
 		flGravity = 1;
 		flDrag = 1.32;
