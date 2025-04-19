@@ -1,9 +1,12 @@
-local DEBUG=(function()local aColorPrint={function(a)printc(0x37,0xff,0x37,0xff,a)end,function(a)printc(0x9b,0xff,0x37,0xff,a)end,function(a)printc(0xff,0xff,0x37,0xff,a)end,function(a)printc(0xff,0x9b,0x37,0xff,a)end,function(a)printc(0xff,0x37,0x37,0xff,a)end};return function(sComment, iLine, iPriority)aColorPrint[iPriority or 5](("[DEBUG] " .. sComment .. " (Line: %i, Time %s)"):format(iLine,os.clock()))end end)();
-DEBUG("Script load started!", 2, 2);
+local function LOG(sMsg)
+	--printc(0x9b, 0xff, 0x37, 0xff, string.format("[ln: %d, cl: %0.3f] %s", debug.getinfo(2, 'l').currentline, os.clock(), sMsg));
+end
+
+LOG("Script load started!");
 
 local config = {
 	polygon = {
-		enabled = false;
+		enabled = true;
 		r = 255;
 		g = 200;
 		b = 155;
@@ -65,6 +68,7 @@ local config = {
 -- Boring shit ahead!
 local CROSS = (function(a, b, c) return (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]); end);
 local CLAMP = (function(a, b, c) return (a<b) and b or (a>c) and c or a; end);
+local VEC_ROT = (function(a,b) return (b:Forward() * a.x) + (b:Right() * a.y) + (b:Up() * a.z); end);
 local FLOOR = math.floor;
 local TRACE_HULL = engine.TraceHull;
 local TRACE_LINE = engine.TraceLine;
@@ -74,182 +78,52 @@ local LINE = draw.Line;
 local OUTLINED_RECT = draw.OutlinedRect;
 local COLOR = draw.Color;
 
-local aItemDefinitions = {};
-do
-	local laDefinitions = {
-		[222]	= 11;		--Mad Milk                                      tf_weapon_jar_milk
-		[812]	= 12;		--The Flying Guillotine                         tf_weapon_cleaver
-		[833]	= 12;		--The Flying Guillotine (Genuine)               tf_weapon_cleaver
-		[1121]	= 11;		--Mutated Milk                                  tf_weapon_jar_milk
 
-		[18]	= -1;		--Rocket Launcher                               tf_weapon_rocketlauncher
-		[205]	= -1;		--Rocket Launcher (Renamed/Strange)             tf_weapon_rocketlauncher
-		[127]	= -1;		--The Direct Hit                                tf_weapon_rocketlauncher_directhit
-		[228]	= -1;		--The Black Box                                 tf_weapon_rocketlauncher
-		[237]	= -1;		--Rocket Jumper                                 tf_weapon_rocketlauncher
-		[414]	= -1;		--The Liberty Launcher                          tf_weapon_rocketlauncher
-		[441]	= -1;		--The Cow Mangler 5000                          tf_weapon_particle_cannon	
-		[513]	= -1;		--The Original                                  tf_weapon_rocketlauncher
-		[658]	= -1;		--Festive Rocket Launcher                       tf_weapon_rocketlauncher
-		[730]	= -1;		--The Beggar's Bazooka                          tf_weapon_rocketlauncher
-		[800]	= -1;		--Silver Botkiller Rocket Launcher Mk.I         tf_weapon_rocketlauncher
-		[809]	= -1;		--Gold Botkiller Rocket Launcher Mk.I           tf_weapon_rocketlauncher
-		[889]	= -1;		--Rust Botkiller Rocket Launcher Mk.I           tf_weapon_rocketlauncher
-		[898]	= -1;		--Blood Botkiller Rocket Launcher Mk.I          tf_weapon_rocketlauncher
-		[907]	= -1;		--Carbonado Botkiller Rocket Launcher Mk.I      tf_weapon_rocketlauncher
-		[916]	= -1;		--Diamond Botkiller Rocket Launcher Mk.I        tf_weapon_rocketlauncher
-		[965]	= -1;		--Silver Botkiller Rocket Launcher Mk.II        tf_weapon_rocketlauncher
-		[974]	= -1;		--Gold Botkiller Rocket Launcher Mk.II          tf_weapon_rocketlauncher
-		[1085]	= -1;		--Festive Black Box                             tf_weapon_rocketlauncher
-		[1104]	= -1;		--The Air Strike                                tf_weapon_rocketlauncher_airstrike
-		[15006]	= -1;		--Woodland Warrior                              tf_weapon_rocketlauncher
-		[15014]	= -1;		--Sand Cannon                                   tf_weapon_rocketlauncher
-		[15028]	= -1;		--American Pastoral                             tf_weapon_rocketlauncher
-		[15043]	= -1;		--Smalltown Bringdown                           tf_weapon_rocketlauncher
-		[15052]	= -1;		--Shell Shocker                                 tf_weapon_rocketlauncher
-		[15057]	= -1;		--Aqua Marine                                   tf_weapon_rocketlauncher
-		[15081]	= -1;		--Autumn                                        tf_weapon_rocketlauncher
-		[15104]	= -1;		--Blue Mew                                      tf_weapon_rocketlauncher
-		[15105]	= -1;		--Brain Candy                                   tf_weapon_rocketlauncher
-		[15129]	= -1;		--Coffin Nail                                   tf_weapon_rocketlauncher
-		[15130]	= -1;		--High Roller's                                 tf_weapon_rocketlauncher
-		[15150]	= -1;		--Warhawk                                       tf_weapon_rocketlauncher
-
-		[442]	= -1;		--The Righteous Bison                           tf_weapon_raygun
-
-		[1178]	= -1;		--Dragon's Fury                                 tf_weapon_rocketlauncher_fireball
-
-		[39]	= 8;		--The Flare Gun                                 tf_weapon_flaregun
-		[351]	= 8;		--The Detonator                                 tf_weapon_flaregun
-		[595]	= 8;		--The Manmelter                                 tf_weapon_flaregun_revenge
-		[740]	= 8;		--The Scorch Shot                               tf_weapon_flaregun
-		[1180]	= 0;		--Gas Passer                                    tf_weapon_jar_gas
-
-		[19]	= 5;		--Grenade Launcher                              tf_weapon_grenadelauncher
-		[206]	= 5;		--Grenade Launcher (Renamed/Strange)            tf_weapon_grenadelauncher
-		[308]	= 5;		--The Loch-n-Load                               tf_weapon_grenadelauncher
-		[996]	= 6;		--The Loose Cannon                              tf_weapon_cannon
-		[1007]	= 5;		--Festive Grenade Launcher                      tf_weapon_grenadelauncher
-		[1151]	= 4;		--The Iron Bomber                               tf_weapon_grenadelauncher
-		[15077]	= 5;		--Autumn                                        tf_weapon_grenadelauncher
-		[15079]	= 5;		--Macabre Web                                   tf_weapon_grenadelauncher
-		[15091]	= 5;		--Rainbow                                       tf_weapon_grenadelauncher
-		[15092]	= 5;		--Sweet Dreams                                  tf_weapon_grenadelauncher
-		[15116]	= 5;		--Coffin Nail                                   tf_weapon_grenadelauncher
-		[15117]	= 5;		--Top Shelf                                     tf_weapon_grenadelauncher
-		[15142]	= 5;		--Warhawk                                       tf_weapon_grenadelauncher
-		[15158]	= 5;		--Butcher Bird                                  tf_weapon_grenadelauncher
-
-		[20]	= 1;		--Stickybomb Launcher                           tf_weapon_pipebomblauncher
-		[207]	= 1;		--Stickybomb Launcher (Renamed/Strange)         tf_weapon_pipebomblauncher
-		[130]	= 3;		--The Scottish Resistance                       tf_weapon_pipebomblauncher
-		[265]	= 3;		--Sticky Jumper                                 tf_weapon_pipebomblauncher
-		[661]	= 1;		--Festive Stickybomb Launcher                   tf_weapon_pipebomblauncher
-		[797]	= 1;		--Silver Botkiller Stickybomb Launcher Mk.I     tf_weapon_pipebomblauncher
-		[806]	= 1;		--Gold Botkiller Stickybomb Launcher Mk.I       tf_weapon_pipebomblauncher
-		[886]	= 1;		--Rust Botkiller Stickybomb Launcher Mk.I       tf_weapon_pipebomblauncher
-		[895]	= 1;		--Blood Botkiller Stickybomb Launcher Mk.I      tf_weapon_pipebomblauncher
-		[904]	= 1;		--Carbonado Botkiller Stickybomb Launcher Mk.I  tf_weapon_pipebomblauncher
-		[913]	= 1;		--Diamond Botkiller Stickybomb Launcher Mk.I    tf_weapon_pipebomblauncher
-		[962]	= 1;		--Silver Botkiller Stickybomb Launcher Mk.II    tf_weapon_pipebomblauncher
-		[971]	= 1;		--Gold Botkiller Stickybomb Launcher Mk.II      tf_weapon_pipebomblauncher
-		[1150]	= 2;		--The Quickiebomb Launcher                      tf_weapon_pipebomblauncher
-		[15009]	= 1;		--Sudden Flurry                                 tf_weapon_pipebomblauncher
-		[15012]	= 1;		--Carpet Bomber                                 tf_weapon_pipebomblauncher
-		[15024]	= 1;		--Blasted Bombardier                            tf_weapon_pipebomblauncher
-		[15038]	= 1;		--Rooftop Wrangler                              tf_weapon_pipebomblauncher
-		[15045]	= 1;		--Liquid Asset                                  tf_weapon_pipebomblauncher
-		[15048]	= 1;		--Pink Elephant                                 tf_weapon_pipebomblauncher
-		[15082]	= 1;		--Autumn                                        tf_weapon_pipebomblauncher
-		[15083]	= 1;		--Pumpkin Patch                                 tf_weapon_pipebomblauncher
-		[15084]	= 1;		--Macabre Web                                   tf_weapon_pipebomblauncher
-		[15113]	= 1;		--Sweet Dreams                                  tf_weapon_pipebomblauncher
-		[15137]	= 1;		--Coffin Nail                                   tf_weapon_pipebomblauncher
-		[15138]	= 1;		--Dressed to Kill                               tf_weapon_pipebomblauncher
-		[15155]	= 1;		--Blitzkrieg                                    tf_weapon_pipebomblauncher
-
-		[588]	= -1;		--The Pomson 6000                               tf_weapon_drg_pomson
-		[997]	= 9;		--The Rescue Ranger                             tf_weapon_shotgun_building_rescue
-
-		[17]	= 10;		--Syringe Gun                                   tf_weapon_syringegun_medic
-		[204]	= 10;		--Syringe Gun (Renamed/Strange)                 tf_weapon_syringegun_medic
-		[36]	= 10;		--The Blutsauger                                tf_weapon_syringegun_medic
-		[305]	= 9;		--Crusader's Crossbow                           tf_weapon_crossbow
-		[412]	= 10;		--The Overdose                                  tf_weapon_syringegun_medic
-		[1079]	= 9;		--Festive Crusader's Crossbow                   tf_weapon_crossbow
-
-		[56]	= 7;		--The Huntsman                                  tf_weapon_compound_bow
-		[1005]	= 7;		--Festive Huntsman                              tf_weapon_compound_bow
-		[1092]	= 7;		--The Fortified Compound                        tf_weapon_compound_bow
-
-		[58]	= 11;		--Jarate                                        tf_weapon_jar
-		[1083]	= 11;		--Festive Jarate                                tf_weapon_jar
-		[1105]	= 11;		--The Self-Aware Beauty Mark                    tf_weapon_jar
-	};
-
-	local iHighestItemDefinitionIndex = 0;
-	for i, _ in pairs(laDefinitions) do
-		iHighestItemDefinitionIndex = math.max(iHighestItemDefinitionIndex, i);
-	end
-
-	for i = 1, iHighestItemDefinitionIndex do
-		table.insert(aItemDefinitions, laDefinitions[i] or false)
-	end
-end
+local g_iPolygonTexture = draw.CreateTextureRGBA("\xff\xff\xff" .. string.char(config.polygon.a), 1, 1);
 
 local PhysicsEnvironment = physics.CreateEnvironment();
+PhysicsEnvironment:SetGravity(Vector3( 0, 0, -800));
+PhysicsEnvironment:SetAirDensity(2.0);
+PhysicsEnvironment:SetSimulationTimestep(1 / 66);
+
+local GetPhysicsObject = {};
 do
-	PhysicsEnvironment:SetGravity( Vector3( 0, 0, -800 ) )
-	PhysicsEnvironment:SetAirDensity( 2.0 )
-	PhysicsEnvironment:SetSimulationTimestep(1/66)
-end
+	GetPhysicsObject.m_mapObjects = {};
+	GetPhysicsObject.m_sActiveObject = "";
 
-local PhysicsObjectHandler = {};
-do
-	PhysicsObjectHandler.m_aObjects = {};
-	PhysicsObjectHandler.m_iActiveObject = 0;
+	function GetPhysicsObject:Shutdown()
+		self.m_sActiveObject = "";
 
-	function PhysicsObjectHandler:Initialize()
-		if #self.m_aObjects > 0 then
-			return;
+		for sKey, pObject in pairs(self.m_mapObjects) do
+			PhysicsEnvironment:DestroyObject(pObject);
 		end
+	end;
 
-		local function new(path)
-			local solid, model = physics.ParseModelByName(path);
-			table.insert(self.m_aObjects, PhysicsEnvironment:CreatePolyObject(model, solid:GetSurfacePropName(), solid:GetObjectParameters()));
-		end
+	setmetatable(GetPhysicsObject, {
+		__call = function(self, sRequestedObject)
+			local pObject = self.m_mapObjects[sRequestedObject];
+			if(self.m_sActiveObject == sRequestedObject)then
+				return pObject;
+			end
 
-		new("models/weapons/w_models/w_stickybomb.mdl");										--Stickybomb
-		new("models/workshop/weapons/c_models/c_kingmaker_sticky/w_kingmaker_stickybomb.mdl");	--QuickieBomb
-		new("models/weapons/w_models/w_stickybomb_d.mdl");										--ScottishResistance, StickyJumper
-		
-		self.m_aObjects[1]:Wake();
-		self.m_iActiveObject = 1;
-	end
+			local pActiveObject = self.m_mapObjects[self.m_sActiveObject];
+			if(pActiveObject)then
+				pActiveObject:Sleep();
+			end
 
-	function PhysicsObjectHandler:Destroy()
-		self.m_iActiveObject = 0;
-		
-		if #self.m_aObjects == 0 then
-			return;
-		end
-		
-		for i, obj in pairs(self.m_aObjects) do
-			PhysicsEnvironment:DestroyObject(obj)
-			self.m_aObjects[i] = nil;
-		end
-	end
+			if(not pObject and sRequestedObject:len() > 0)then
+				local solid, model = physics.ParseModelByName(sRequestedObject);
+				if(not solid or not model)then
+					error(string.format("Invalid object path \"%s\"!", sRequestedObject));
+				end
 
-	setmetatable(PhysicsObjectHandler, {
-		__call = function(self, iRequestedObject)
-			if iRequestedObject ~= self.m_iActiveObject then
-				self.m_aObjects[self.m_iActiveObject]:Sleep();
-				self.m_aObjects[iRequestedObject]:Wake();
-
-				self.m_iActiveObject = iRequestedObject;
+				self.m_mapObjects[sRequestedObject] = PhysicsEnvironment:CreatePolyObject(model, solid:GetSurfacePropName(), solid:GetObjectParameters());
+				pObject = self.m_mapObjects[sRequestedObject];
 			end
 			
-			return self.m_aObjects[self.m_iActiveObject];
+			self.m_sActiveObject = sRequestedObject;
+			pObject:Wake();
+			return pObject;
 		end;
 	});
 end
@@ -433,8 +307,6 @@ end
 
 local ImpactPolygon = {};
 do
-	ImpactPolygon.m_iTexture = draw.CreateTextureRGBA(string.char(0xff, 0xff, 0xff, config.polygon.a, 0xff, 0xff, 0xff, config.polygon.a, 0xff, 0xff, 0xff, config.polygon.a, 0xff, 0xff, 0xff, config.polygon.a), 2, 2);
-
 	local vPlane, vOrigin = Vector3(0, 0, 0), Vector3(0, 0, 0);
 	local iSegments = config.polygon.segments;
 	local fSegmentAngleOffset = math.pi / iSegments;
@@ -507,7 +379,7 @@ do
 					end
 
 
-					POLYGON(self.m_iTexture, (sum < 0) and reverse_cords or cords, true)
+					POLYGON(g_iPolygonTexture, (sum < 0) and reverse_cords or cords, true)
 				end
 
 				local last = positions[#positions];
@@ -568,7 +440,7 @@ do
 					end
 
 
-					POLYGON(self.m_iTexture, (sum < 0) and reverse_cords or cords, true)
+					POLYGON(g_iPolygonTexture, (sum < 0) and reverse_cords or cords, true)
 				end
 
 				local last = positions[#positions];
@@ -592,7 +464,15 @@ do
 	local iX, iY, iWidth, iHeight = config.camera.x, config.camera.y, FLOOR(config.camera.height * config.camera.aspect_ratio), config.camera.height;
 	local iResolutionX, iResolutionY = FLOOR(iWidth * config.camera.source.scale), FLOOR(iHeight * config.camera.source.scale);
 	ImpactCamera.Texture = materials.CreateTextureRenderTarget("ProjectileCamera", iResolutionX, iResolutionY);
-	local Material = materials.Create("ProjectileCameraMat", [[ UnlitGeneric { $basetexture "ProjectileCamera" }]] );
+
+	-- Creating materials can just fail sometimes so we will just try to do it 128 times and if it still fails its not my problem!
+	local Material;
+	for i = 1, 128 do
+		Material = materials.Create("ProjectileCameraMat", [[ UnlitGeneric { $basetexture "ProjectileCamera" }]] );
+		if(Material)then
+			break;
+		end
+	end
 
 	local metatable = {__call = function(self) end;};
 
@@ -609,176 +489,641 @@ do
 	setmetatable(ImpactCamera, metatable);
 end
 
-local GetProjectileInformation = (function()
-	local aOffsets = {
-		Vector3(16, 8, -6),
-		Vector3(23.5, -8, -3),
-		Vector3(23.5, 12, -3),
-		Vector3(16, 6, -8)
-	};
+local PROJECTILE_TYPE_BASIC = 0;
+local PROJECTILE_TYPE_PSEUDO = 1;
+local PROJECTILY_TYPE_SIMUL = 2;
 
-	local aCollisionMaxs = {
-		Vector3(0, 0, 0),
-		Vector3(1, 1, 1),
-		Vector3(2, 2, 2),
-		Vector3(3, 3, 3)
-	};
+local function GetProjectileInformation(...) end
+do
+	LOG("Creating GetProjectileInformation");
 
-	return function(pLocal, bDucking, iCase, iDefIndex, iWepID)
-		local fChargeBeginTime =  (pLocal:GetPropFloat("PipebombLauncherLocalData", "m_flChargeBeginTime") or 0);
-
-		if fChargeBeginTime ~= 0 then
-			fChargeBeginTime = globals.CurTime() - fChargeBeginTime;
+	local aItemDefinitions = {};
+	local function AppendItemDefinitions(iType, ...)
+		for _, i in pairs({...})do
+			aItemDefinitions[i] = iType;
 		end
+	end;
 
-		if iCase == -1 then -- RocketLauncher, DragonsFury, Pomson, Bison
-			local vOffset, vCollisionMax, fForwardVelocity = Vector3(23.5, -8, bDucking and 8 or -3), aCollisionMaxs[2], 0;
+	local function DefineProjectileDefinition(tbl)
+		return {
+			m_iType = PROJECTILE_TYPE_BASIC;
+			m_vecOffset = tbl.vecOffset or Vector3(0, 0, 0);
+			m_vecAbsoluteOffset = tbl.vecAbsoluteOffset or Vector3(0, 0, 0);
+			m_vecAngleOffset = tbl.vecAngleOffset or Vector3(0, 0, 0);
+			m_vecVelocity = tbl.vecVelocity or Vector3(0, 0, 0);
+			m_vecAngularVelocity = tbl.vecAngularVelocity or Vector3(0, 0, 0);
+			m_vecMins = tbl.vecMins or (not tbl.vecMaxs) and Vector3(0, 0, 0) or -tbl.vecMaxs;
+			m_vecMaxs = tbl.vecMaxs or (not tbl.vecMins) and Vector3(0, 0, 0) or -tbl.vecMins;
+			m_flGravity = tbl.flGravity or 0.001;
+			m_flDrag = tbl.flDrag or 0;
+			m_iAlignDistance = tbl.iAlignDistance or 0;
+			m_sModelName = tbl.sModelName or "";
+
 			
-			if iWepID == 22 or iWepID == 65 then
-				vOffset.y, vCollisionMax, fForwardVelocity = (iDefIndex == 513) and 0 or 12, aCollisionMaxs[1], (iWepID == 65) and 2000 or (iDefIndex == 414) and 1550 or 1100;
 
-			elseif iWepID == 109 then
-				vOffset.y, vOffset.z = 6, -3;
+			GetOffset = (not tbl.GetOffset) and (function(self, bDucking, bIsFlipped) 
+				return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z) or self.m_vecOffset;   
+			end) or tbl.GetOffset;  -- self, bDucking, bIsFlipped
 
-			else
-				fForwardVelocity = 1200;
+			GetFirePosition = tbl.GetFirePosition or function(self, pLocalPlayer, vecLocalView, vecViewAngles, bIsFlipped)
+				local resultTrace = TRACE_HULL( 
+					vecLocalView, 
+					vecLocalView + VEC_ROT(
+						self:GetOffset((pLocalPlayer:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, bIsFlipped), 
+						vecViewAngles
+					), 
+					-Vector3(8, 8, 8), 
+					Vector3(8, 8, 8), 
+					100679691); -- MASK_SOLID_BRUSHONLY
 
-			end
-			
-			return vOffset, fForwardVelocity, 0, vCollisionMax, 0;
+				return (not resultTrace.startsolid) and resultTrace.endpos or nil;
+			end;
 
-		elseif iCase == 1  then return aOffsets[1], 900 + CLAMP(fChargeBeginTime / 4, 0, 1) * 1500, 200, aCollisionMaxs[3], 0;                                   -- StickyBomb
-		elseif iCase == 2  then return aOffsets[1], 900 + CLAMP(fChargeBeginTime / 1.2, 0, 1) * 1500, 200, aCollisionMaxs[3], 0;                                 -- QuickieBomb
-		elseif iCase == 3  then return aOffsets[1], 900 + CLAMP(fChargeBeginTime / 4, 0, 1) * 1500, 200, aCollisionMaxs[3], 0;                                   -- ScottishResistance, StickyJumper
-		elseif iCase == 4  then return aOffsets[1], 1200, 200, aCollisionMaxs[3], 400, 0.45;                                                                     -- TheIronBomber
-		elseif iCase == 5  then return aOffsets[1], (iDefIndex == 308) and 1500 or 1200, 200, aCollisionMaxs[3], 400, (iDefIndex == 308) and 0.225 or 0.45;      -- GrenadeLauncher, LochnLoad
-		elseif iCase == 6  then return aOffsets[1], 1440, 200, aCollisionMaxs[3], 560, 0.5;                                                                      -- LooseCannon
-		elseif iCase == 7  then return aOffsets[2], 1800 + CLAMP(fChargeBeginTime, 0, 1) * 800, 0, aCollisionMaxs[2], 200 - CLAMP(fChargeBeginTime, 0, 1) * 160; -- Huntsman
-		elseif iCase == 8  then return Vector3(23.5, 12, bDucking and 8 or -3), 2000, 0, aCollisionMaxs[1], 120;                                                 -- FlareGuns
-		elseif iCase == 9  then return aOffsets[2], 2400, 0, aCollisionMaxs[((iDefIndex == 997) and 2 or 4)], 80;                                                -- CrusadersCrossbow, RescueRanger
-		elseif iCase == 10 then return aOffsets[4], 1000, 0, aCollisionMaxs[2], 120;                                                                             -- SyringeGuns
-		elseif iCase == 11 then return Vector3(23.5, 8, -3), 1000, 200, aCollisionMaxs[4], 450;                                                                  -- Jarate, MadMilk
-		elseif iCase == 12 then return Vector3(23.5, 8, -3), 3000, 300, aCollisionMaxs[3], 900, 1.3;                                                             -- FlyingGuillotine
-		end
+			GetVelocity = (not tbl.GetVelocity) and (function(self, ...) return self.m_vecVelocity; end) or tbl.GetVelocity; -- self, flChargeBeginTime
+
+			GetAngularVelocity = (not tbl.GetAngularVelocity) and (function(self, ...) return self.m_vecAngularVelocity; end) or tbl.GetAngularVelocity; -- self, flChargeBeginTime
+
+			GetGravity = (not tbl.GetGravity) and (function(self, ...) return self.m_flGravity; end) or tbl.GetGravity; -- self, flChargeBeginTime
+		};
 	end
-end)();
 
+	local function DefineBasicProjectileDefinition(tbl)
+		local stReturned = DefineProjectileDefinition(tbl);
+		stReturned.m_iType = PROJECTILE_TYPE_BASIC;
+		
+		return stReturned;
+	end
 
-local g_fTraceInterval = CLAMP(config.measure_segment_size, 0.5, 8) / 66;
-local g_fFlagInterval = g_fTraceInterval * 1320;
-local g_vEndOrigin = Vector3(0, 0, 0);
+	local function DefinePseudoProjectileDefinition(tbl)
+		local stReturned = DefineProjectileDefinition(tbl);
+		stReturned.m_iType = PROJECTILE_TYPE_PSEUDO;
 
-callbacks.Register("CreateMove", "LoadPhysicsObjects", function()
-	callbacks.Unregister("CreateMove", "LoadPhysicsObjects")
+		return stReturned;
+	end
 
-	PhysicsObjectHandler:Initialize()
+	local function DefineSimulProjectileDefinition(tbl)
+		local stReturned = DefineProjectileDefinition(tbl);
+		stReturned.m_iType = PROJECTILE_TYPE_SIMUL;
+		
+		return stReturned;
+	end
 
-	DEBUG("PhysicsObjectHandler initialized!", 676, 1);
+	local function DefineDerivedProjectileDefinition(def, tbl)
+		local stReturned = {};
+		for k, v in pairs(def) do stReturned[k] = v; end
+		for k, v in pairs(tbl) do stReturned[((type(v) ~= "function") and "m_" or "") .. k] = v; end
 
-	callbacks.Register("Draw", function()
-		TrajectoryLine.m_aPositions, TrajectoryLine.m_iSize = {}, 0;
-
-		if engine.Con_IsVisible() or engine.IsGameUIVisible() then
-			return;
+		if(not tbl.GetOffset and tbl.vecOffset)then
+			stReturned.GetOffset = function(self, bDucking, bIsFlipped) 
+				return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z) or self.m_vecOffset; 
+			end;
 		end
 
-		local pLocal = entities.GetLocalPlayer();
-		if not pLocal or pLocal:InCond(7) or not pLocal:IsAlive() then 
-			return;
+		if(not tbl.GetVelocity and tbl.vecVelocity)then
+			stReturned.GetVelocity = function(self, ...) return self.m_vecVelocity; end;
+		end
+
+		if(not tbl.GetAngularVelocity and tbl.vecAngularVelocity)then
+			stReturned.GetAngularVelocity = function(self, ...) return self.m_vecAngularVelocity; end;
+		end
+
+		if(not tbl.GetGravity and tbl.flGravity)then
+			stReturned.GetGravity = function(self, ...) return self.m_flGravity; end;
 		end
 	
-		local pWeapon = pLocal:GetPropEntity("m_hActiveWeapon");
-		if not pWeapon or (pWeapon:GetWeaponProjectileType() or 0) < 2 then 
-			return;
-		end
+		return stReturned;
+	end
 
-		local iItemDefinitionIndex = pWeapon:GetPropInt("m_iItemDefinitionIndex");
-		local iItemDefinitionType = aItemDefinitions[iItemDefinitionIndex] or 0;
-		if iItemDefinitionType == 0 then return end
+	local aProjectileInfo = {};
 
-		local vOffset, fForwardVelocity, fUpwardVelocity, vCollisionMax, fGravity, fDrag = GetProjectileInformation(pWeapon, (pLocal:GetPropInt("m_fFlags") & FL_DUCKING) == 2, iItemDefinitionType, iItemDefinitionIndex, pWeapon:GetWeaponID());
-		local vCollisionMin = -vCollisionMax;
+	AppendItemDefinitions(1, 
+		18,    -- Rocket Launcher tf_weapon_rocketlauncher
+		205,   -- Rocket Launcher (Renamed/Strange) 	tf_weapon_rocketlauncher
+		228,   -- The Black Box 	tf_weapon_rocketlauncher
+		237,   -- Rocket Jumper 	tf_weapon_rocketlauncher
+		658,   -- Festive Rocket Launcher
+		730,   -- The Beggar's Bazooka
+		800,   -- Silver Botkiller Rocket Launcher Mk.I
+		809,   -- Gold Botkiller Rocket Launcher Mk.I
+		889,   -- Rust Botkiller Rocket Launcher Mk.I
+		898,   -- Blood Botkiller Rocket Launcher Mk.I
+		907,   -- Carbonado Botkiller Rocket Launcher Mk.I
+		916,   -- Diamond Botkiller Rocket Launcher Mk.I
+		965,   -- Silver Botkiller Rocket Launcher Mk.II
+		974,   -- Gold Botkiller Rocket Launcher Mk.II
+		1085,  -- Festive Black Box
+		1104,  -- The Air Strike
+		15006, -- Woodland Warrior
+		15014, -- Sand Cannon
+		15028, -- American Pastoral
+		15043, -- Smalltown Bringdown
+		15052, -- Shell Shocker
+		15057, -- Aqua Marine
+		15081, -- Autumn
+		15104, -- Blue Mew
+		15105, -- Brain Candy
+		15129, -- Coffin Nail
+		15130, -- High Roller's
+		15150  -- Warhawk 
+	);
+	aProjectileInfo[1] = DefineBasicProjectileDefinition({
+		vecVelocity = Vector3(1100, 0, 0);
+		vecMaxs = Vector3(0, 0, 0);
+		iAlignDistance = 2000;
 
-		local vStartPosition, vStartAngle = pLocal:GetAbsOrigin() + pLocal:GetPropVector("localdata", "m_vecViewOffset[0]"), engine.GetViewAngles();
+		GetOffset = function(self, bDucking, bIsFlipped)
+			return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3);
+		end;
+	});
+	
+	AppendItemDefinitions(2, 
+		127 -- The Direct Hit
+	);
+	aProjectileInfo[2] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+		vecVelocity = Vector3(2000, 0, 0);
+	});
 
-		local results = TRACE_HULL(vStartPosition, vStartPosition + (vStartAngle:Forward() * vOffset.x) + (vStartAngle:Right() * (vOffset.y * (pWeapon:IsViewModelFlipped() and -1 or 1))) + (vStartAngle:Up() * vOffset.z), vCollisionMin, vCollisionMax, 100679691);
-		if results.fraction ~= 1 then return end
+	AppendItemDefinitions(3,
+		414 -- The Liberty Launcher
+	);
+	aProjectileInfo[3] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+		vecVelocity = Vector3(1550, 0, 0);
+	});
 
-		vStartPosition = results.endpos;
+	AppendItemDefinitions(4,
+		513 -- The Original
+	);
+	aProjectileInfo[4] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+		GetOffset = function(self, bDucking)
+			return Vector3(23.5, 0, bDucking and 8 or -3);
+		end;
+	});
 
-		if iItemDefinitionType == -1 or (iItemDefinitionType >= 7 and iItemDefinitionType < 11) and fForwardVelocity ~= 0 then
-			local res = engine.TraceLine(results.startpos, results.startpos + (vStartAngle:Forward() * 2000), 100679691);
-			vStartAngle = (((res.fraction <= 0.1) and (results.startpos + (vStartAngle:Forward() * 2000)) or res.endpos) - vStartPosition):Angles();
-		end
-			
-		local vVelocity = (vStartAngle:Forward() * fForwardVelocity) + (vStartAngle:Up() * fUpwardVelocity);
+	-- https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/game/shared/tf/tf_weapon_dragons_fury.cpp
+	AppendItemDefinitions(5,
+		1178 -- Dragon's Fury
+	);
+	aProjectileInfo[5] = DefineBasicProjectileDefinition({
+		vecVelocity = Vector3(600, 0, 0);
+		vecMaxs = Vector3(1, 1, 1);
 
-		TrajectoryLine.m_vFlagOffset = vStartAngle:Right() * -config.flags.size;
-		TrajectoryLine:Insert(vStartPosition);
+		GetOffset = function(self, bDucking, bIsFlipped)
+			return Vector3(3, 7, -9);
+		end;
+	});
+	
+	AppendItemDefinitions(6, 
+		442 -- The Righteous Bison
+	);
+	aProjectileInfo[6] = DefineBasicProjectileDefinition({
+		vecVelocity = Vector3(1200, 0, 0);
+		vecMaxs = Vector3(1, 1, 1);
+		iAlignDistance = 2000;
 
-		if iItemDefinitionType == -1 then
-			results = TRACE_HULL(vStartPosition, vStartPosition + (vStartAngle:Forward() * 10000), vCollisionMin, vCollisionMax, 100679691);
+		GetOffset = function(self, bDucking, bIsFlipped)
+			return Vector3(23.5, -8 * (bIsFlipped and -1 or 1), bDucking and 8 or -3);
+		end;
+	});
 
-			if results.startsolid then return end
-				
-			local iSegments = FLOOR((results.endpos - results.startpos):Length() / g_fFlagInterval);
-			local vForward = vStartAngle:Forward();
-				
-			for i = 1, iSegments do
-				TrajectoryLine:Insert(vForward * (i * g_fFlagInterval) + vStartPosition);
-			end
+	AppendItemDefinitions(7,
+		20,    -- Stickybomb Launcher
+		207,   -- Stickybomb Launcher (Renamed/Strange) 	
+		661,   -- Festive Stickybomb Launcher 	
+		797,   -- Silver Botkiller Stickybomb Launcher Mk.I 	
+		806,   -- Gold Botkiller Stickybomb Launcher Mk.I 	
+		886,   -- Rust Botkiller Stickybomb Launcher Mk.I 	
+		895,   -- Blood Botkiller Stickybomb Launcher Mk.I 	
+		904,   -- Carbonado Botkiller Stickybomb Launcher Mk.I 	
+		913,   -- Diamond Botkiller Stickybomb Launcher Mk.I 	
+		962,   -- Silver Botkiller Stickybomb Launcher Mk.II 	
+		971,   -- Gold Botkiller Stickybomb Launcher Mk.II 	
+		15009, -- Sudden Flurry 	
+		15012, -- Carpet Bomber 	
+		15024, -- Blasted Bombardier 	
+		15038, -- Rooftop Wrangler 	
+		15045, -- Liquid Asset 	
+		15048, -- Pink Elephant 	
+		15082, -- Autumn 	
+		15083, -- Pumpkin Patch 	
+		15084, -- Macabre Web 	
+		15113, -- Sweet Dreams 	
+		15137, -- Coffin Nail 	
+		15138, -- Dressed to Kill 	
+		15155  -- Blitzkrieg 	 
+	);
+	aProjectileInfo[7] = DefineSimulProjectileDefinition({
+		vecOffset = Vector3(16, 8, -6);
+		vecMaxs = Vector3(2, 2, 2);
+		sModelName = "models/weapons/w_models/w_stickybomb.mdl";
 
-			TrajectoryLine:Insert(results.endpos);
+		GetVelocity = function(self, flChargeBeginTime)
+			return Vector3(900 + CLAMP(flChargeBeginTime / 4, 0, 1) * 1500, 0, 200);
+		end;
+	});
 
-		elseif iItemDefinitionType > 3 then
+	AppendItemDefinitions(8, 
+		1150 -- The Quickiebomb Launcher
+	);
+	aProjectileInfo[8] = DefineDerivedProjectileDefinition(aProjectileInfo[7], {
+		sModelName = "models/workshop/weapons/c_models/c_kingmaker_sticky/w_kingmaker_stickybomb.mdl";
+
+		GetVelocity = function(self, flChargeBeginTime)
+			return Vector3(900 + CLAMP(flChargeBeginTime / 1.2, 0, 1) * 1500, 0, 200); 
+		end;
+	});
+
+	AppendItemDefinitions(9, 
+		130, -- The Scottish Resistance
+		265  -- Sticky Jumper
+	);
+	aProjectileInfo[9] = DefineDerivedProjectileDefinition(aProjectileInfo[7], {
+		sModelName = "models/weapons/w_models/w_stickybomb_d.mdl";
+	});
+
+	AppendItemDefinitions(10,
+		19,    -- Grenade Launcher
+		206,   -- Grenade Launcher (Renamed/Strange)
+		1007,  -- Festive Grenade Launcher
+		1151,  -- The Iron Bomber
+		15077, -- Autumn
+		15079, -- Macabre Web
+		15091, -- Rainbow
+		15092, -- Sweet Dreams
+		15116, -- Coffin Nail
+		15117, -- Top Shelf
+		15142, -- Warhawk
+		15158  -- Butcher Bird 
+	);
+	aProjectileInfo[10] = DefinePseudoProjectileDefinition({
+		vecOffset = Vector3(16, 8, -6);
+		vecVelocity = Vector3(1200, 0, 200);
+		vecAngularVelocity = Vector3(600, 0, 0);
+		vecMaxs = Vector3(2, 2, 2);
+		flGravity = 1;
+		flDrag = 0.45;
+	});
+
+	AppendItemDefinitions(11,
+		308 -- The Loch-n-Load
+	);
+	aProjectileInfo[11] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
+		vecVelocity = Vector3(1500, 0, 200);
+		vecAngularVelocity = Vector3(0, 0, 0);
+		flDrag = 0.225;
+	});
+
+	AppendItemDefinitions(12,
+		996 -- The Loose Cannon
+	);
+	aProjectileInfo[12] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
+		vecVelocity = Vector3(1440, 0, 200),
+		flGravity = 1.4;
+		flDrag = 0.5;
+	});
+
+	AppendItemDefinitions(13,
+		56,   -- The Huntsman
+		1005, -- Festive Huntsman
+		1092  --The Fortified Compound
+	);
+	aProjectileInfo[13] = DefinePseudoProjectileDefinition({
+		vecOffset = Vector3(23.5, -8, -3);
+		vecMaxs = Vector3(0, 0, 0);
+		iAlignDistance = 2000;
+
+		GetVelocity = function(self, flChargeBeginTime)
+			return Vector3(1800 + CLAMP(flChargeBeginTime, 0, 1) * 800, 0, 0);
+		end;
+
+		GetGravity = function(self, flChargeBeginTime)
+			return 0.5 - CLAMP(flChargeBeginTime, 0, 1) * 0.4;
+		end;
+	});
+
+	AppendItemDefinitions(14,
+		39,   -- The Flare Gun
+		595,  -- The Manmelter
+		740,  -- The Scorch Shot
+		1081  -- Festive Flare Gun
+	);
+	aProjectileInfo[14] = DefinePseudoProjectileDefinition({
+		vecVelocity = Vector3(2000, 0, 0);
+		vecMaxs = Vector3(0, 0, 0);
+		flGravity = 0.3;
+		iAlignDistance = 2000;
+
+		GetOffset = function(self, bDucking, bIsFlipped)
+			return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3);
+		end;
+	});
+
+	AppendItemDefinitions(15, 
+		305, -- Crusader's Crossbow
+		1079 -- Festive Crusader's Crossbow
+	);
+	aProjectileInfo[15] = DefinePseudoProjectileDefinition({
+		vecOffset = Vector3(23.5, -8, -3);
+		vecVelocity = Vector3(2400, 0, 0);
+		vecMaxs = Vector3(3, 3, 3);
+		flGravity = 0.2;
+		iAlignDistance = 2000;
+	});
+
+	AppendItemDefinitions(16, 
+		997 -- The Rescue Ranger
+	);
+	aProjectileInfo[16] = DefineDerivedProjectileDefinition(aProjectileInfo[15], {
+		vecMaxs = Vector3(1, 1, 1);
+	});
+
+	AppendItemDefinitions(17,
+		17,  -- Syringe Gun
+		36,  -- The Blutsauger
+		204, -- Syringe Gun (Renamed/Strange)
+		412  -- The Overdose
+	);
+	aProjectileInfo[17] = DefinePseudoProjectileDefinition({
+		vecOffset = Vector3(16, 6, -8);
+		vecVelocity = Vector3(1000, 0, 0);
+		vecMaxs = Vector3(1, 1, 1);
+		flGravity = 0.3;
+	});
+
+	AppendItemDefinitions(18,
+		58,   -- Jarate
+		222,  -- Mad Milk
+		1083, -- Festive Jarate
+		1105, -- The Self-Aware Beauty Mark
+		1121  -- Mutated Milk
+	);
+	aProjectileInfo[18] = DefinePseudoProjectileDefinition({
+		vecOffset = Vector3(16, 8, -6);
+		vecVelocity = Vector3(1000, 0, 200);
+		vecMaxs = Vector3(8, 8, 8);
+		flGravity = 1.125;
+	});
+
+	AppendItemDefinitions(19,
+		812, -- The Flying Guillotine
+		833  -- The Flying Guillotine (Genuine)
+	);
+	aProjectileInfo[19] = DefinePseudoProjectileDefinition({
+		vecOffset = Vector3(23.5, 8, -3);
+		vecVelocity = Vector3(3000, 0, 300);
+		vecMaxs = Vector3(2, 2, 2);
+		flGravity = 2.25;
+		flDrag = 1.3;
+	});
+
+	AppendItemDefinitions(20,
+		44  -- The Sandman
 		
-			local vPosition = Vector3(0, 0, 0);
-			for i = 0.01515, 5, g_fTraceInterval do
-				local scalar = (not fDrag) and i or ((1 - math.exp(-fDrag * i)) / fDrag);
+	);
+	aProjectileInfo[20] = DefineSimulProjectileDefinition({
+		vecVelocity = Vector3(2985.1118164063, 0, 298.51116943359);
+		vecAngularVelocity = Vector3(0, 50, 0);
+		vecMaxs = Vector3(4.25, 4.25, 4.25);
+		sModelName = "models/weapons/w_models/w_baseball.mdl";
 
-				vPosition.x = vVelocity.x * scalar + vStartPosition.x;
-				vPosition.y = vVelocity.y * scalar + vStartPosition.y;
-				vPosition.z = (vVelocity.z - fGravity * i) * scalar + vStartPosition.z;
+		GetFirePosition = function(self, pLocalPlayer, vecLocalView, vecViewAngles, bIsFlipped)
+			--https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/shared/tf/tf_weapon_bat.cpp#L232
+			return pLocalPlayer:GetAbsOrigin() + ((Vector3(0, 0, 50) + (vecViewAngles:Forward() * 32)) * pLocalPlayer:GetPropFloat("m_flModelScale"));
+		end;
+	});
+	
+	AppendItemDefinitions(21,
+		648  -- The Wrap Assassin
+	);
+	aProjectileInfo[21] = DefineDerivedProjectileDefinition(aProjectileInfo[20], {
+		vecMins = Vector3(-2.990180015564, -2.5989532470703, -2.483987569809);
+		vecMaxs = Vector3(2.6593606472015, 2.5989530086517, 2.4839873313904);
+		sModelName = "models/weapons/c_models/c_xms_festive_ornament.mdl";
+	});
 
-				results = TRACE_HULL(results.endpos, vPosition, vCollisionMin, vCollisionMax, 100679691);
+	AppendItemDefinitions(22,
+		441 -- The Cow Mangler 5000
+	);
+	aProjectileInfo[22] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+		GetOffset = function(self, bDucking, bIsFlipped)
+			return Vector3(23.5, 8 * (bIsFlipped and 1 or -1), bDucking and 8 or -3);
+		end;
+	});
 
-				TrajectoryLine:Insert(results.endpos);
+	--https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/shared/tf/tf_weapon_raygun.cpp#L249
+	AppendItemDefinitions(23,
+		588  -- The Pomson 6000	
+	);
+	aProjectileInfo[23] = DefineDerivedProjectileDefinition(aProjectileInfo[6], {
+		vecAbsoluteOffset = Vector3(0, 0, -13);
+	});
 
-				if results.fraction ~= 1 then break; end
-			end
+	AppendItemDefinitions(24,
+		1180  -- Gas Passer
+	);
+	aProjectileInfo[24] = DefinePseudoProjectileDefinition({
+		vecOffset = Vector3(16, 8, -6);
+		vecVelocity = Vector3(2000, 0, 200);
+		vecAngularVelocity = Vector3(300, 0, 0);
+		vecMaxs = Vector3(8, 8, 8);
+		flGravity = 1;
+		flDrag = 1.32;
+	});
+
+	AppendItemDefinitions(25,
+		528  -- The Short Circuit
+	);
+	aProjectileInfo[25] = DefineBasicProjectileDefinition({
+		vecOffset = Vector3(40, 15, -10);
+		vecVelocity = Vector3(700, 0, 0);
+		vecMaxs = Vector3(1, 1, 1);
+	});
+
+	AppendItemDefinitions(26,
+		42,   -- Sandvich
+		159,  -- The Dalokohs Bar
+		311,  -- The Buffalo Steak Sandvich
+		433,  -- Fishcake
+		863,  -- Robo-Sandvich
+		1002, -- Festive Sandvich
+		1190  -- Second Banana
+	);
+	aProjectileInfo[26] = DefinePseudoProjectileDefinition({
+		vecOffset = Vector3(0, 0, -8);
+		vecAngleOffset = Vector3(-10, 0, 0);
+		vecVelocity = Vector3(500, 0, 0);
+		vecMaxs = Vector3(17, 17, 10);
+		flGravity = 1.02;
+	});
+
+	function GetProjectileInformation(iItemDefinitionIndex)
+		return aProjectileInfo[aItemDefinitions[iItemDefinitionIndex or 0]];
+	end
+
+	LOG("GetProjectileInformation ready!");
+end
+
+local g_flTraceInterval = CLAMP(config.measure_segment_size, 0.5, 8) / 66;
+local g_fFlagInterval = g_flTraceInterval * 1320;
+local g_vEndOrigin = Vector3(0, 0, 0);
+
+local function DoBasicProjectileTrace(vecSource, vecForward, vecMins, vecMaxs)
+	local resultTrace = TRACE_HULL(vecSource, vecSource + (vecForward * 10000), vecMins, vecMaxs, 100679691);
+	if resultTrace.startsolid then 
+		return resultTrace; 
+	end
 		
-		else
-			local obj = PhysicsObjectHandler(iItemDefinitionType);
+	local iSegments = FLOOR((resultTrace.endpos - resultTrace.startpos):Length() / g_fFlagInterval);
+	for i = 1, iSegments do
+		TrajectoryLine:Insert(vecForward * (i * g_fFlagInterval) + vecSource);
+	end
 
-			obj:SetPosition(vStartPosition, vStartAngle, true)
-			obj:SetVelocity(vVelocity, Vector3(0, 0, 0))
+	TrajectoryLine:Insert(resultTrace.endpos);
+	return resultTrace;
+end
 
-			for i = 2, 330 do
-				results = TRACE_HULL(results.endpos, obj:GetPosition(), vCollisionMin, vCollisionMax, 100679691);
-				TrajectoryLine:Insert(results.endpos);
+local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag, vecMins, vecMaxs)
+	local flGravity = flGravity * 400;
+	local vecPosition = vecSource;
+	local resultTrace;
 
-				if results.fraction ~= 1 then break; end
-				PhysicsEnvironment:Simulate(g_fTraceInterval);
-			end
+	for i = 0.01515, 5, g_flTraceInterval do
+		local flScalar = (flDrag == 0) and i or ((1 - math.exp(-flDrag * i)) / flDrag);
 
-			PhysicsEnvironment:ResetSimulationClock();
+		local scalar = (not fDrag) and i or ((1 - math.exp(-fDrag * i)) / fDrag);
+
+		resultTrace = TRACE_HULL(vecPosition, Vector3(
+			vecVelocity.x * flScalar + vecSource.x,
+			vecVelocity.y * flScalar + vecSource.y,
+			(vecVelocity.z - flGravity * i) * flScalar + vecSource.z
+		), vecMins, vecMaxs, 100679691);
+
+		vecPosition = resultTrace.endpos;
+		TrajectoryLine:Insert(resultTrace.endpos);
+
+		if(resultTrace.fraction ~= 1)then 
+			break; 
+		end
+	end
+
+	return resultTrace;
+end
+
+local function DoSimulProjectileTrace(pObject, vecMins, vecMaxs)
+	local resultTrace;
+	for i = 1, 330 do
+		local vecStart = pObject:GetPosition();
+		PhysicsEnvironment:Simulate(g_flTraceInterval);
+		
+		resultTrace = TRACE_HULL(vecStart, pObject:GetPosition(), vecMins, vecMaxs, 100679691);
+		TrajectoryLine:Insert(resultTrace.endpos);
+		if(resultTrace.fraction ~= 1)then 
+			break; 
 		end
 
-		if TrajectoryLine.m_iSize == 0 then return end
-		if results then
-			ImpactPolygon(results.plane, results.endpos)
-			g_vEndOrigin = results.endpos;
+		if(i == 330)then
+			LOG("Hit the end of alotted simulation time!");
 		end
+	end
 
-		if TrajectoryLine.m_iSize == 1 then 
-			ImpactCamera();
-			return; 
-		end
+	PhysicsEnvironment:ResetSimulationClock();
+	return resultTrace;
+end
 
-		TrajectoryLine();
+callbacks.Register("Draw", function()
+	TrajectoryLine.m_aPositions, TrajectoryLine.m_iSize = {}, 0;
+
+
+	if(engine.Con_IsVisible() or engine.IsGameUIVisible())then
+		return;
+	end
+
+	local pLocalPlayer = entities.GetLocalPlayer();
+	if(not pLocalPlayer or pLocalPlayer:InCond(7) or not pLocalPlayer:IsAlive())then
+		return;
+	end
+
+	local pLocalWeapon = pLocalPlayer:GetPropEntity("m_hActiveWeapon");
+	if(not pLocalWeapon)then
+		return;
+	end
+
+	local stInfo = GetProjectileInformation(pLocalWeapon:GetPropInt("m_iItemDefinitionIndex"));
+	if(not stInfo)then
+		return;
+	end
+
+	local flChargeBeginTime = pLocalWeapon:GetPropFloat("PipebombLauncherLocalData", "m_flChargeBeginTime") or 0;
+	if(flChargeBeginTime > 0)then
+		flChargeBeginTime = globals.CurTime() - flChargeBeginTime;
+	end
+
+	local vecLocalView = pLocalPlayer:GetAbsOrigin() + pLocalPlayer:GetPropVector("localdata", "m_vecViewOffset[0]");
+	local vecViewAngles = engine.GetViewAngles() + stInfo.m_vecAngleOffset;
+	local vecSource = stInfo:GetFirePosition(pLocalPlayer, vecLocalView, vecViewAngles, pLocalWeapon:IsViewModelFlipped());
+	if(not vecSource)then
+		return;
+	end
+
+	if(stInfo.m_iAlignDistance > 0)then
+		local vecGoalPoint = vecLocalView + (vecViewAngles:Forward() * stInfo.m_iAlignDistance);
+		local res = engine.TraceLine(vecLocalView, vecGoalPoint, 100679691);
+		vecViewAngles = (((res.fraction <= 0.1) and vecGoalPoint or res.endpos) - vecSource):Angles();
+	end
+
+	vecSource = vecSource + stInfo.m_vecAbsoluteOffset;
+
+	TrajectoryLine.m_vFlagOffset = vecViewAngles:Right() * -config.flags.size;
+	TrajectoryLine:Insert(vecSource);
+
+
+	if(stInfo.m_iType == PROJECTILE_TYPE_BASIC)then
+		resultTrace = DoBasicProjectileTrace(
+			vecSource,
+			vecViewAngles:Forward(),
+			stInfo.m_vecMins,
+			stInfo.m_vecMaxs
+		);
+
+	elseif(stInfo.m_iType == PROJECTILE_TYPE_PSEUDO)then
+		resultTrace = DoPseudoProjectileTrace(
+			vecSource,
+			VEC_ROT(stInfo:GetVelocity(flChargeBeginTime), vecViewAngles),
+			stInfo:GetGravity(flChargeBeginTime),
+			stInfo.m_flDrag,
+			stInfo.m_vecMins,
+			stInfo.m_vecMaxs
+		);
+
+	elseif(stInfo.m_iType == PROJECTILE_TYPE_SIMUL)then
+		local pObject = GetPhysicsObject(stInfo.m_sModelName);
+		pObject:SetPosition(vecSource, vecViewAngles, true);
+		pObject:SetVelocity(VEC_ROT(stInfo:GetVelocity(flChargeBeginTime), vecViewAngles), stInfo:GetAngularVelocity(flChargeBeginTime));
+
+		resultTrace = DoSimulProjectileTrace(
+			pObject,
+			stInfo.m_vecMins,
+			stInfo.m_vecMaxs
+		);
+
+	else
+		LOG(string.format("Unknown projectile type \"%s\"!", stInfo.m_iType));
+		return;
+	end
+
+	if TrajectoryLine.m_iSize == 0 then return end
+	if(resultTrace)then
+		ImpactPolygon(resultTrace.plane, resultTrace.endpos);
+		g_vEndOrigin = resultTrace.endpos;
+	end
+
+	if TrajectoryLine.m_iSize == 1 then 
 		ImpactCamera();
-	end)
-end)
+		return; 
+	end
+
+	TrajectoryLine();
+	ImpactCamera();
+end);
 
 if config.camera.enabled then
 	callbacks.Register("PostRenderView", function(view)
@@ -800,7 +1145,6 @@ if config.camera.enabled then
 			CustomCtx.origin = stUTrace.endpos;
 		end
 
-		
 		render.Push3DView(CustomCtx, 0x37, ImpactCamera.Texture)
 		render.ViewDrawScene(true, true, CustomCtx)
 		render.PopView();
@@ -808,13 +1152,9 @@ if config.camera.enabled then
 end
 
 callbacks.Register("Unload", function()
-	DEBUG("Script unload started!", 811, 2)
-
-	PhysicsObjectHandler:Destroy();
+	GetPhysicsObject:Shutdown();
 	physics.DestroyEnvironment(PhysicsEnvironment);
-	draw.DeleteTexture(ImpactPolygon.m_iTexture);
-
-	DEBUG("Script fully unloaded!", 817, 1);
+	draw.DeleteTexture(g_iPolygonTexture);
 end)
 
-DEBUG("Script fully loaded!", 820, 1);
+LOG("Script fully loaded!");
