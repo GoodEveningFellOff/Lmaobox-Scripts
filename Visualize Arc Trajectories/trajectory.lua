@@ -22,6 +22,8 @@ local config = {
 		g = 255;
 		b = 255;
 		a = 255;
+
+		thickness = 2;
 	};
 
 	flags = {
@@ -32,19 +34,23 @@ local config = {
 		a = 255;
 
 		size = 5;
+		thickness = 2;
 	};
 
 	outline = {
 		line_and_flags = true;
 		polygon = true;
+
 		r = 0;
 		g = 0;
 		b = 0;
 		a = 155;
+
+		thickness = 2;
 	};
 
 	camera = {
-		enabled = true;
+		enabled = false;
 		
 		x = 100;
 		y = 300;
@@ -62,6 +68,9 @@ local config = {
 
 	-- 0.5 to 8, determines the size of the segments traced, lower values = worse performance (default 2.5)
 	measure_segment_size = 2.5;
+
+	-- This will disable the line thickness which may be causing performance issues.
+	ignore_thickness = true;
 };
 
 
@@ -78,7 +87,27 @@ local LINE = draw.Line;
 local OUTLINED_RECT = draw.OutlinedRect;
 local COLOR = draw.Color;
 
+if(((not config.line.enabled or config.line.thickness <= 1) and 
+	(not config.flags.enabled or config.flags.thickness <= 1) and 
+	(not config.outline.line_and_flags or config.outline.thickness <= 1)) or config.ignore_thickness)then
+	config.ignore_thickness = true;
+else
+	if(config.line.thickness <= 0)then
+		config.line.enabled = false;
+	end
 
+	if(config.flags.thickness <= 0)then
+		config.flags.enabled = false;
+	end
+
+	if(config.outline.thickness <= 0)then
+		config.outline.line_and_flags = false;
+	end
+end
+
+local flFillAlpha = 255;
+local flOutlineAlpha = 255;
+local textureFill = draw.CreateTextureRGBA(string.char(0xff, 0xff, 0xff, flFillAlpha, 0xff, 0xff, 0xff, flFillAlpha, 0xff, 0xff, 0xff, flFillAlpha, 0xff, 0xff, 0xff, flFillAlpha), 2, 2);
 local g_iPolygonTexture = draw.CreateTextureRGBA("\xff\xff\xff" .. string.char(config.polygon.a), 1, 1);
 
 local PhysicsEnvironment = physics.CreateEnvironment();
@@ -128,6 +157,204 @@ do
 	});
 end
 
+local function ConvertCords(aPositions, vecFlagOffset)
+	local aCords = {};
+	for i = #aPositions, 1, -1 do
+		local p1 = WORLD2SCREEN(aPositions[i]);
+		local p2 = WORLD2SCREEN(aPositions[i] + vecFlagOffset);
+		if(p1)then
+			local n = #aCords + 1;
+			aCords[n] = { p1[1], p1[2], nil, nil };
+			if(p2)then
+				aCords[n][3] = p2[1];
+				aCords[n][4] = p2[2];
+			end
+		end
+	end
+
+	local aReturned = {};
+	if(#aCords < 2)then
+		return {};
+	end
+
+	local x1, y1, x2, y2 = aCords[1][1], aCords[1][2], aCords[2][1], aCords[2][2];
+
+	local flAng = math.atan(y2 - y1, x2 - x1) + math.pi / 2;
+	local flCos, flSin = math.cos(flAng), math.sin(flAng);
+	aReturned[#aReturned + 1] = { x1, y1, flCos, flSin, aCords[1][3], aCords[1][4] };
+
+	if(#aCords == 2)then
+		aReturned[#aReturned + 1] = { x2, y2, flCos, flSin, aCords[2][3], aCords[2][4] };
+		return aReturned;
+	end
+
+	for i = 3, #aCords do
+		x1, y1 = x2, y2;
+		x2, y2 = aCords[i][1], aCords[i][2];
+
+		local flAng2 = math.atan(y2 - y1, x2 - x1) + math.pi / 2;
+		local flHalfAngle = (flAng2 - flAng) / 2 + flAng;
+		flAng = flAng2;
+
+		aReturned[#aReturned + 1] = { x1, y1, math.cos(flAng), math.sin(flAng), aCords[i - 1][3], aCords[i - 1][4] };
+		flCos, flSin = math.cos(flAng), math.sin(flAng);
+	end
+
+	aReturned[#aReturned + 1] = { x2, y2, flCos, flSin, aCords[#aCords][3], aCords[#aCords][4] }; 
+	return aReturned;
+end
+
+local function DrawBasicThickLine(aCords, flSize)
+	if #aCords < 2 then
+		return;
+	end
+
+	local flSize = flSize / 2;
+
+	local verts = {
+		{aCords[1][1] - (flSize * aCords[1][3]), aCords[1][2] - (flSize * aCords[1][4]), 0, 0},
+		{aCords[1][1] + (flSize * aCords[1][3]), aCords[1][2] + (flSize * aCords[1][4]), 0, 0},
+		{0, 0, 0, 0},
+		{0, 0, 0, 0}
+	};
+
+	for i = 2, #aCords do
+		verts[4][1], verts[4][2] = verts[1][1], verts[1][2];
+		verts[3][1], verts[3][2] = verts[2][1], verts[2][2];
+		verts[1][1], verts[1][2] = aCords[i][1] - (flSize * aCords[i][3]), aCords[i][2] - (flSize * aCords[i][4]);
+		verts[2][1], verts[2][2] = aCords[i][1] + (flSize * aCords[i][3]), aCords[i][2] + (flSize * aCords[i][4]);
+		
+		draw.TexturedPolygon(textureFill, verts, true);
+	end
+end
+
+
+local function DrawProjectileLine(aCords, flSize, flFlagSize, flOutlineSize, aColorLine, aColorFlags, aColorOutline)
+	if(#aCords < 2)then
+		return;
+	end
+
+	if(flOutlineSize > 0 and config.outline.line_and_flags)then
+		draw.Color(table.unpack(aColorOutline));
+		local flOff = flSize / 2;
+		local flFlagSize = flFlagSize / 2;
+		local aVerts1 = {
+			{aCords[1][1] - ((flOff + flOutlineSize) * aCords[1][3]), aCords[1][2] - ((flOff + flOutlineSize) * aCords[1][4]), 0, 0},
+			{aCords[1][1] - (flOff * aCords[1][3]), aCords[1][2] - (flOff * aCords[1][4]), 0, 0},
+			{0, 0, 0, 0},
+			{0, 0, 0, 0}
+		};
+
+		local aVerts2 = {
+			{aCords[1][1] + (flOff * aCords[1][3]), aCords[1][2] + (flOff * aCords[1][4]), 0, 0},
+			{aCords[1][1] + ((flOff + flOutlineSize) * aCords[1][3]), aCords[1][2] + ((flOff + flOutlineSize) * aCords[1][4]), 0, 0},
+			{0, 0, 0, 0},
+			{0, 0, 0, 0}
+		};
+
+		local iFlagX, iFlagY = aCords[1][5], aCords[1][6];
+		if(iFlagX and iFlagY and config.flags.enabled)then
+			local iX, iY = aCords[1][1], aCords[1][2];
+			local flAng = math.atan(iFlagY - iY, iFlagX - iX) + math.pi / 2;
+			local flCos, flSin = math.cos(flAng), math.sin(flAng);
+
+			local flS1, flS2 = flFlagSize, flFlagSize + flOutlineSize;
+			local flO1, flO2, flO3, flO4 = flS1 * flCos, flS2 * flCos, flS1 * flSin, flS2 * flSin;
+
+
+			draw.TexturedPolygon(textureFill, {
+				{ iX - flO1, iY - flO3, 0, 0 },
+				{ iX - flO2, iY - flO4, 0, 0 },
+				{ iFlagX - flO2, iFlagY - flO4, 0, 0 },
+				{ iFlagX - flO1, iFlagY - flO3, 0, 0 }	
+			}, true);
+
+			
+			draw.TexturedPolygon(textureFill, {
+				{ iX + flO2, iY + flO4, 0, 0 },
+				{ iX + flO1, iY + flO3, 0, 0 },
+				{ iFlagX + flO1, iFlagY + flO3, 0, 0 },
+				{ iFlagX + flO2, iFlagY + flO4, 0, 0 }	
+				
+			}, true);
+		end
+
+		for i = 2, #aCords do
+			aVerts1[4][1], aVerts1[4][2] = aVerts1[1][1], aVerts1[1][2];
+			aVerts1[3][1], aVerts1[3][2] = aVerts1[2][1], aVerts1[2][2];
+			aVerts1[1][1], aVerts1[1][2] = aCords[i][1] - ((flOff + flOutlineSize) * aCords[i][3]), aCords[i][2] - ((flOff + flOutlineSize) * aCords[i][4]);
+			aVerts1[2][1], aVerts1[2][2] = aCords[i][1] - (flOff * aCords[i][3]), aCords[i][2] - (flOff * aCords[i][4]);
+
+			aVerts2[4][1], aVerts2[4][2] = aVerts2[1][1], aVerts2[1][2];
+			aVerts2[3][1], aVerts2[3][2] = aVerts2[2][1], aVerts2[2][2];
+			aVerts2[1][1], aVerts2[1][2] = aCords[i][1] + (flOff * aCords[i][3]), aCords[i][2] + (flOff * aCords[i][4]);
+			aVerts2[2][1], aVerts2[2][2] = aCords[i][1] + ((flOff + flOutlineSize) * aCords[i][3]), aCords[i][2] + ((flOff + flOutlineSize) * aCords[i][4]);
+
+			if(config.line.enabled)then
+				draw.TexturedPolygon(textureFill, aVerts1, true);
+				draw.TexturedPolygon(textureFill, aVerts2, true);
+			end
+			
+			if(config.flags.enabled)then
+				local iFlagX, iFlagY = aCords[i][5], aCords[i][6];
+				if(iFlagX and iFlagY)then
+					local iX, iY = aCords[i][1], aCords[i][2];
+					local flAng = math.atan(iFlagY - iY, iFlagX - iX) + math.pi / 2;
+					local flCos, flSin = math.cos(flAng), math.sin(flAng);
+
+					local flS1, flS2 = flFlagSize, flFlagSize + flOutlineSize;
+					local flO1, flO2, flO3, flO4 = flS1 * flCos, flS2 * flCos, flS1 * flSin, flS2 * flSin;
+		
+
+					draw.TexturedPolygon(textureFill, {
+						{ iX - flO1, iY - flO3, 0, 0 },
+						{ iX - flO2, iY - flO4, 0, 0 },
+						{ iFlagX - flO2, iFlagY - flO4, 0, 0 },
+						{ iFlagX - flO1, iFlagY - flO3, 0, 0 }	
+					}, true);
+
+					
+					draw.TexturedPolygon(textureFill, {
+						{ iX + flO2, iY + flO4, 0, 0 },
+						{ iX + flO1, iY + flO3, 0, 0 },
+						{ iFlagX + flO1, iFlagY + flO3, 0, 0 },
+						{ iFlagX + flO2, iFlagY + flO4, 0, 0 }	
+						
+					}, true);
+				end
+			end
+		end
+	end
+
+	if(config.line.enabled)then
+		draw.Color(table.unpack(aColorLine));	
+		DrawBasicThickLine(aCords, flSize);
+	end
+
+	if(not config.flags.enabled)then
+		return;
+	end
+
+	draw.Color(table.unpack(aColorFlags));
+	local flSize = flSize / 2;
+	for i = 1, #aCords do
+		local iFlagX, iFlagY = aCords[i][5], aCords[i][6];
+		if(iFlagX and iFlagY)then
+			local iX, iY = aCords[i][1], aCords[i][2];
+			local flAng = math.atan(iFlagY - iY, iFlagX - iX) + math.pi / 2;
+			local flO1, flO2 = (flFlagSize / 2) * math.cos(flAng), (flFlagSize / 2) * math.sin(flAng);
+
+			draw.TexturedPolygon(textureFill, {
+				{iX + flO1, iY + flO2, 0, 0},
+				{iX - flO1, iY - flO2, 0, 0},
+				{iFlagX - flO1, iFlagY - flO2, 0, 0},
+				{iFlagX + flO1, iFlagY + flO2, 0, 0}
+			}, true);
+		end
+	end
+end
+
+
 local TrajectoryLine = {};
 do
 	TrajectoryLine.m_aPositions = {};
@@ -146,8 +373,17 @@ do
 	local iOutlineOffsetOuter = (config.flags.size < 1) and -1 or 1;
 
 	local metatable = {__call = nil;};
-	if not config.line.enabled and not config.flags.enabled then
+	if(not config.line.enabled and not config.flags.enabled)then
 		function metatable:__call() end
+
+	elseif(not config.ignore_thickness)then
+		function metatable:__call() 
+			DrawProjectileLine(ConvertCords(self.m_aPositions, self.m_vFlagOffset), 
+			config.line.thickness, config.flags.thickness, config.outline.thickness,
+			{ config.line.r, config.line.g, config.line.b, config.line.a }, 
+			{ config.flags.r, config.flags.g, config.flags.b, config.flags.a },
+			{ config.outline.r, config.outline.g, config.outline.b, config.outline.a });
+		end
 	
 	elseif config.outline.line_and_flags then
 		if config.line.enabled and config.flags.enabled then
@@ -713,6 +949,7 @@ do
 	);
 	aProjectileInfo[7] = DefineSimulProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
+		vecAngularVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(2, 2, 2);
 		sModelName = "models/weapons/w_models/w_stickybomb.mdl";
 
@@ -1151,6 +1388,7 @@ callbacks.Register("Unload", function()
 	GetPhysicsObject:Shutdown();
 	physics.DestroyEnvironment(PhysicsEnvironment);
 	draw.DeleteTexture(g_iPolygonTexture);
+	draw.DeleteTexture(textureFill);
 end)
 
 LOG("Script fully loaded!");
