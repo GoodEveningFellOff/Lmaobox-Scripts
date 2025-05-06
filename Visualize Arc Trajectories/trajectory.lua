@@ -66,6 +66,12 @@ local config = {
 		};
 	};
 
+	spells = {
+		prefer_showing_spells = false; -- prefer showing spells over current projectile weapon
+		show_other_key = -1; -- https://lmaobox.net/lua/Lua_Constants/
+		is_toggle = false;
+	};
+
 	-- 0.5 to 8, determines the size of the segments traced, lower values = worse performance (default 2.5)
 	measure_segment_size = 2.5;
 
@@ -730,6 +736,7 @@ local PROJECTILE_TYPE_PSEUDO = 1;
 local PROJECTILY_TYPE_SIMUL = 2;
 
 local function GetProjectileInformation(...) end
+local function GetSpellInformation(...) end
 do
 	LOG("Creating GetProjectileInformation");
 
@@ -737,6 +744,13 @@ do
 	local function AppendItemDefinitions(iType, ...)
 		for _, i in pairs({...})do
 			aItemDefinitions[i] = iType;
+		end
+	end;
+
+	local aSpellDefinitions = {};
+	local function AppendSpellDefinitions(iType, ...)
+		for _, i in pairs({...})do
+			aSpellDefinitions[i] = iType;
 		end
 	end;
 
@@ -831,6 +845,7 @@ do
 	end
 
 	local aProjectileInfo = {};
+	local aSpellInfo = {};
 
 	AppendItemDefinitions(1, 
 		18,    -- Rocket Launcher tf_weapon_rocketlauncher
@@ -1188,8 +1203,107 @@ do
 		flGravity = 1.02;
 	});
 
-	function GetProjectileInformation(iItemDefinitionIndex)
-		return aProjectileInfo[aItemDefinitions[iItemDefinitionIndex or 0]];
+	AppendSpellDefinitions(1,
+		9 -- TF_Spell_Meteor
+	);
+	aSpellInfo[1] = DefinePseudoProjectileDefinition({
+		vecVelocity = Vector3(1000, 0, 200);
+		vecMaxs = Vector3(0, 0, 0);
+		flGravity = 1.025;
+		flDrag = 0.15;
+
+		GetOffset = function(self, bDucking, bIsFlipped)
+			return Vector3(3, 7, -9);
+		end;
+	});
+
+	AppendSpellDefinitions(2,
+		1, -- TF_Spell_Bats
+		6  -- TF_Spell_Teleport
+	);
+	aSpellInfo[2] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
+		vecMins = Vector3(-0.019999999552965, -0.019999999552965, -0.019999999552965);
+		vecMaxs = Vector3(0.019999999552965, 0.019999999552965, 0.019999999552965);
+	});
+
+	AppendSpellDefinitions(3,
+		3 -- TF_Spell_MIRV
+	);
+	aSpellInfo[3] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
+		vecMaxs = Vector3(1.5, 1.5, 1.5);
+		flDrag = 0.525;
+	});
+
+	AppendSpellDefinitions(4,
+		10 -- TF_Spell_SpawnBoss
+	);
+	aSpellInfo[4] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
+		vecMaxs = Vector3(3.0, 3.0, 3.0);
+		flDrag = 0.35;
+	});
+
+	AppendSpellDefinitions(5,
+		11 -- TF_Spell_SkeletonHorde
+	);
+	aSpellInfo[5] = DefineDerivedProjectileDefinition(aSpellInfo[4], {
+		vecMaxs = Vector3(2.0, 2.0, 2.0);
+	});
+
+	AppendSpellDefinitions(6,
+		0 -- TF_Spell_Fireball
+	);
+	aSpellInfo[6] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
+		iType = PROJECTILE_TYPE_BASIC;
+		vecVelocity = Vector3(1200, 0, 0);
+	});
+
+	AppendSpellDefinitions(7,
+		7 -- TF_Spell_LightningBall
+	);
+	aSpellInfo[7] = DefineDerivedProjectileDefinition(aSpellInfo[6], {
+		vecVelocity = Vector3(480, 0, 0);
+	});
+
+	AppendSpellDefinitions(8,
+		12 -- TF_Spell_Fireball
+	);
+	aSpellInfo[8] = DefineDerivedProjectileDefinition(aSpellInfo[6], {
+		vecVelocity = Vector3(1500, 0, 0);
+	});
+
+	function GetProjectileInformation(i)
+		return aProjectileInfo[aItemDefinitions[i or 0]];	
+	end
+
+	function GetSpellInformation(pLocalPlayer)
+		if(not pLocalPlayer)then
+			return;
+		end
+
+		local pSpellBook = nil;
+		for _, pLocalWeapon in pairs(pLocalPlayer:GetPropDataTableEntity("m_hMyWeapons") or {})do
+			if(pLocalWeapon:IsValid() and pLocalWeapon:IsWeapon())then
+				if(pLocalWeapon:GetWeaponID() == 97)then -- TF_WEAPON_SPELLBOOK 
+					pSpellBook = pLocalWeapon;
+					break;
+				end
+			end
+		end
+
+		if(not pSpellBook)then
+			return;
+		end
+
+		local i = pSpellBook:GetPropInt("m_iSelectedSpellIndex");
+		local iOverride = client.GetConVar("tf_test_spellindex");
+		if(iOverride > -1)then
+			i = iOverride;
+
+		elseif(pSpellBook:GetPropInt("m_iSpellCharges") <= 0 or i == -2)then -- SPELL_UNKNOWN
+			return;
+		end
+
+		return aSpellInfo[aSpellDefinitions[i or 0]];
 	end
 
 	LOG("GetProjectileInformation ready!");
@@ -1198,6 +1312,29 @@ end
 local g_flTraceInterval = CLAMP(config.measure_segment_size, 0.5, 8) / 66;
 local g_fFlagInterval = g_flTraceInterval * 1320;
 local g_vEndOrigin = Vector3(0, 0, 0);
+local g_bSpellPreferState = config.spells.prefer_showing_spells;
+local g_iLastPollTick = 0;
+
+local function UpdateSpellPreference()
+	if(config.spells.show_other_key == -1)then
+		return;
+	end
+
+	if(config.spells.is_toggle)then
+		local bPressed, iTick = input.IsButtonPressed(config.spells.show_other_key);
+		
+		if(bPressed and iTick ~= g_iLastPollTick)then
+			g_iLastPollTick = iTick;
+			g_bSpellPreferState = not g_bSpellPreferState;
+		end
+
+	elseif(input.IsButtonDown(config.spells.show_other_key))then
+		g_bSpellPreferState = not config.spells.prefer_showing_spells;
+
+	else
+		g_bSpellPreferState = config.spells.prefer_showing_spells;
+	end
+end
 
 local function DoBasicProjectileTrace(vecSource, vecForward, vecMins, vecMaxs)
 	local resultTrace = TRACE_HULL(vecSource, vecSource + (vecForward * 10000), vecMins, vecMaxs, 100679691);
@@ -1263,9 +1400,9 @@ local function DoSimulProjectileTrace(pObject, vecMins, vecMaxs)
 end
 
 callbacks.Register("Draw", function()
+	UpdateSpellPreference();
+
 	TrajectoryLine.m_aPositions, TrajectoryLine.m_iSize = {}, 0;
-
-
 	if(engine.Con_IsVisible() or engine.IsGameUIVisible())then
 		return;
 	end
@@ -1280,7 +1417,15 @@ callbacks.Register("Draw", function()
 		return;
 	end
 
-	local stInfo = GetProjectileInformation(pLocalWeapon:GetPropInt("m_iItemDefinitionIndex"));
+	local stProjectileInfo = GetProjectileInformation(pLocalWeapon:GetPropInt("m_iItemDefinitionIndex"));
+	local stSpellInfo = GetSpellInformation(pLocalPlayer);
+	local stInfo = nil;
+	if(g_bSpellPreferState)then
+		stInfo = stSpellInfo or stProjectileInfo;
+	else
+		stInfo = stProjectileInfo or stSpellInfo;
+	end
+
 	if(not stInfo)then
 		return;
 	end
