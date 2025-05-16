@@ -46,7 +46,7 @@ local config = {
 		b = 0;
 		a = 155;
 
-		thickness = 2;
+		thickness = 1;
 	};
 
 	camera = {
@@ -261,6 +261,10 @@ local function DrawProjectileLine(aCords, flSize, flFlagSize, flOutlineSize, aCo
 		local iFlagX, iFlagY = aCords[1][5], aCords[1][6];
 		if(iFlagX and iFlagY and config.flags.enabled)then
 			local iX, iY = aCords[1][1], aCords[1][2];
+			if(config.flags.size < 0)then
+				iX, iY, iFlagX, iFlagY = iFlagX, iFlagY, iX, iY;
+			end
+
 			local flAng = math.atan(iFlagY - iY, iFlagX - iX) + math.pi / 2;
 			local flCos, flSin = math.cos(flAng), math.sin(flAng);
 
@@ -275,14 +279,28 @@ local function DrawProjectileLine(aCords, flSize, flFlagSize, flOutlineSize, aCo
 				{ iFlagX - flO1, iFlagY - flO3, 0, 0 }	
 			}, true);
 
-			
 			draw.TexturedPolygon(textureFill, {
 				{ iX + flO2, iY + flO4, 0, 0 },
 				{ iX + flO1, iY + flO3, 0, 0 },
 				{ iFlagX + flO1, iFlagY + flO3, 0, 0 },
 				{ iFlagX + flO2, iFlagY + flO4, 0, 0 }	
-				
 			}, true);
+
+			draw.TexturedPolygon(textureFill, {
+				{ iFlagX - flO2, iY - flO4, 0, 0 },
+				{ iFlagX - (flO2 + flOutlineSize), iY - flO4, 0, 0 },
+				{ iFlagX - (flO2 + flOutlineSize), iY + flO4, 0, 0 },
+				{ iFlagX - flO2, iY + flO4, 0, 0 }
+			}, true);
+
+			if(not config.line.enabled)then
+				draw.TexturedPolygon(textureFill, {
+					{ iX - (flO2 - flOutlineSize), iY - flO4, 0, 0 },
+					{ iX - flO2, iY - flO4, 0, 0 },
+					{ iX - flO2, iY + flO4, 0, 0 },
+					{ iX - (flO2 - flOutlineSize), iY + flO4, 0, 0 }
+				}, true);
+			end
 		end
 
 		for i = 2, #aCords do
@@ -299,19 +317,58 @@ local function DrawProjectileLine(aCords, flSize, flFlagSize, flOutlineSize, aCo
 			if(config.line.enabled)then
 				draw.TexturedPolygon(textureFill, aVerts1, true);
 				draw.TexturedPolygon(textureFill, aVerts2, true);
-			end
+
+				if(config.flags.enabled)then
+					local iFlagX, iFlagY = aCords[i][5], aCords[i][6];
+					if(iFlagX and iFlagY)then
+						local iX, iY = aCords[i][1], aCords[i][2];
+						if(config.flags.size < 0)then
+							iX, iY, iFlagX, iFlagY = iFlagX, iFlagY, iX, iY;
+						end
+						local flAng = math.atan(iFlagY - iY, iFlagX - iX) + math.pi / 2;
+						local flCos, flSin = math.cos(flAng), math.sin(flAng);
+
+						local flS1, flS2 = flFlagSize, flFlagSize + flOutlineSize;
+						local flO1, flO2, flO3, flO4 = flS1 * flCos, flS2 * flCos, flS1 * flSin, flS2 * flSin;
 			
-			if(config.flags.enabled)then
+
+						draw.TexturedPolygon(textureFill, {
+							{ iX - flO1, iY - flO3, 0, 0 },
+							{ iX - flO2, iY - flO4, 0, 0 },
+							{ iFlagX - flO2, iFlagY - flO4, 0, 0 },
+							{ iFlagX - flO1, iFlagY - flO3, 0, 0 }	
+						}, true);
+
+						draw.TexturedPolygon(textureFill, {
+							{ iX + flO2, iY + flO4, 0, 0 },
+							{ iX + flO1, iY + flO3, 0, 0 },
+							{ iFlagX + flO1, iFlagY + flO3, 0, 0 },
+							{ iFlagX + flO2, iFlagY + flO4, 0, 0 }	
+						}, true);
+
+						draw.TexturedPolygon(textureFill, {
+							{ iFlagX - flO2, iY - flO4, 0, 0 },
+							{ iFlagX - (flO2 + flOutlineSize), iY - flO4, 0, 0 },
+							{ iFlagX - (flO2 + flOutlineSize), iY + flO4, 0, 0 },
+							{ iFlagX - flO2, iY + flO4, 0, 0 }
+						}, true);
+					end
+				end
+
+			elseif(config.flags.enabled)then
 				local iFlagX, iFlagY = aCords[i][5], aCords[i][6];
 				if(iFlagX and iFlagY)then
 					local iX, iY = aCords[i][1], aCords[i][2];
+
+					if(config.flags.size < 0)then
+						iX, iY, iFlagX, iFlagY = iFlagX, iFlagY, iX, iY;
+					end
 					local flAng = math.atan(iFlagY - iY, iFlagX - iX) + math.pi / 2;
 					local flCos, flSin = math.cos(flAng), math.sin(flAng);
 
 					local flS1, flS2 = flFlagSize, flFlagSize + flOutlineSize;
 					local flO1, flO2, flO3, flO4 = flS1 * flCos, flS2 * flCos, flS1 * flSin, flS2 * flSin;
 		
-
 					draw.TexturedPolygon(textureFill, {
 						{ iX - flO1, iY - flO3, 0, 0 },
 						{ iX - flO2, iY - flO4, 0, 0 },
@@ -319,13 +376,25 @@ local function DrawProjectileLine(aCords, flSize, flFlagSize, flOutlineSize, aCo
 						{ iFlagX - flO1, iFlagY - flO3, 0, 0 }	
 					}, true);
 
-					
 					draw.TexturedPolygon(textureFill, {
 						{ iX + flO2, iY + flO4, 0, 0 },
 						{ iX + flO1, iY + flO3, 0, 0 },
 						{ iFlagX + flO1, iFlagY + flO3, 0, 0 },
 						{ iFlagX + flO2, iFlagY + flO4, 0, 0 }	
-						
+					}, true);
+
+					draw.TexturedPolygon(textureFill, {
+						{ iFlagX - flO2, iY - flO4, 0, 0 },
+						{ iFlagX - (flO2 + flOutlineSize), iY - flO4, 0, 0 },
+						{ iFlagX - (flO2 + flOutlineSize), iY + flO4, 0, 0 },
+						{ iFlagX - flO2, iY + flO4, 0, 0 }
+					}, true);
+
+					draw.TexturedPolygon(textureFill, {
+						{ iX - (flO2 - flOutlineSize), iY - flO4, 0, 0 },
+						{ iX - flO2, iY - flO4, 0, 0 },
+						{ iX - flO2, iY + flO4, 0, 0 },
+						{ iX - (flO2 - flOutlineSize), iY + flO4, 0, 0 }
 					}, true);
 				end
 			end
