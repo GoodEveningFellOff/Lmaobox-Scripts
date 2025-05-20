@@ -57,7 +57,7 @@ local function hex_to_hsv(str)
 end
 
 local groups = {
-	"backtrack ticks color",
+	"backtrack indicator color",
 	"blue team color",
 	"blue team (invisible)",
 	"red team color",
