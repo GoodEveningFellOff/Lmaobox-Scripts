@@ -1349,15 +1349,10 @@ do
 			return;
 		end
 
-		local pSpellBook = nil;
-		for _, pLocalWeapon in pairs(pLocalPlayer:GetPropDataTableEntity("m_hMyWeapons") or {})do
-			if(pLocalWeapon:IsValid() and pLocalWeapon:IsWeapon())then
-				if(pLocalWeapon:GetWeaponID() == 97)then -- TF_WEAPON_SPELLBOOK 
-					pSpellBook = pLocalWeapon;
-					break;
-				end
-			end
-		end
+		local pSpellBook = pLocalPlayer:GetEntityForLoadoutSlot(9); -- LOADOUT_POSITION_ACTION 
+		if(not pSpellBook or pSpellBook:GetWeaponID() ~= 97)then -- TF_WEAPON_SPELLBOOK
+			return;
+		end 
 
 		if(not pSpellBook)then
 			return;
