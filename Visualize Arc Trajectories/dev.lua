@@ -19,7 +19,7 @@ local config = {
 		b = 255;
 		a = 155;
 
-		thickness = 3;
+		thickness = 2;
 	};
 
 	camera = {
@@ -46,7 +46,7 @@ local config = {
 	};
 
 	-- 0.5 to 8, determines the size of the segments traced, lower values = worse performance (default 2.5)
-	measure_segment_size = 2.5;
+	measure_segment_size = 1;
 };
 
 
@@ -63,9 +63,7 @@ local LINE = draw.Line;
 local OUTLINED_RECT = draw.OutlinedRect;
 local COLOR = draw.Color;
 
-local flFillAlpha = 255;
-local flOutlineAlpha = 255;
-local textureFill = draw.CreateTextureRGBA(string.char(0xff, 0xff, 0xff, flFillAlpha, 0xff, 0xff, 0xff, flFillAlpha, 0xff, 0xff, 0xff, flFillAlpha, 0xff, 0xff, 0xff, flFillAlpha), 2, 2);
+local textureFill = draw.CreateTextureRGBA(string.char(255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255), 2, 2);
 local g_iPolygonTexture;
 do
 	local iRad = 128;
@@ -235,8 +233,7 @@ end
 
 local ImpactMarkers = {};
 do
-	ImpactMarkers.m_bForcePass = false;
-	ImpactMarkers.m_bWasFailure = false;
+	ImpactMarkers.m_bIsHit = false;
 	ImpactMarkers.m_aPositions = {};
 	ImpactMarkers.m_iSize = 0;
 
@@ -244,6 +241,47 @@ do
 
 	local iRad1, iRad2 = 2.5, 4;
 	local aData = {};
+	local function IClr(b,a,n)
+		for i = 1, (n or 1) do
+			local s = #aData;
+			aData[s + 1] = b and 0 or 255;
+			aData[s + 2] = b and 0 or 255;
+			aData[s + 3] = b and 0 or 255;
+			aData[s + 4] = a;
+		end
+	end
+
+	IClr(true, 0, 1);
+	IClr(true, 155, 4);
+	IClr(true, 0, 3);
+
+	IClr(true, 155, 1);
+	IClr(false, 255, 3);
+	IClr(true, 155, 2);
+	IClr(true, 0, 2);
+
+	for i = 1, 2 do
+		IClr(true, 155, 1);
+		IClr(false, 255, 4);
+		IClr(true, 155, 1);
+		IClr(true, 0, 2);
+	end
+
+	IClr(true, 155, 2);
+	IClr(false, 255, 3);
+	IClr(true, 155, 1);
+	IClr(true, 0, 2);
+
+	IClr(true, 0, 1);
+	IClr(true, 155, 4);
+	IClr(true, 0, 3);
+
+	for i = 1, 2 do
+		IClr(true, 0, 8);
+	end
+
+
+	--[[
 	local flRad1Dist = iRad1 / iRad2;
 	for i = 1, iRad2 * 2 do
 		local flY = (i / (iRad2 * 2) - 0.5) * 2; 
@@ -271,91 +309,92 @@ do
 			end
 		end
 	end
+	]]
 
 	ImpactMarkers.m_iTexture = draw.CreateTextureRGBA(string.char(table.unpack(aData)), 8, 8);
 
 	function ImpactMarkers:Insert(vecOrigin, vecPlane)
-		self.m_bWasFailure = vecPlane == nil;
-		
 		self.m_iSize = self.m_iSize + 1;
 		self.m_aPositions[self.m_iSize] = { vecOrigin, vecPlane };
 	end
 
-	local function quicksort(...) end
-	
-	local function partition(array, left, right, pivotIndex)
-		local pivotValue = array[pivotIndex][1]
-		array[pivotIndex], array[right] = array[right], array[pivotIndex]
-		
-		local storeIndex = left
-		
-		for i =  left, right-1 do
-			if array[i][1] <= pivotValue then
-				array[i], array[storeIndex] = array[storeIndex], array[i]
-				storeIndex = storeIndex + 1
-			end
-			array[storeIndex], array[right] = array[right], array[storeIndex]
+	local function Quicksort(...)end
+	function Quicksort(aInput, iLeft, iRight)
+		if(iLeft >= iRight)then
+			return;
 		end
-		
-		return storeIndex
+
+		local iSwapIndex = iLeft;
+		for i = iLeft + 1, iRight do
+			if(aInput[i][1] < aInput[iSwapIndex][1])then
+				if(i == iSwapIndex + 1)then
+					aInput[iSwapIndex], aInput[iSwapIndex + 1] = aInput[iSwapIndex + 1], aInput[iSwapIndex];
+				else
+					aInput[iSwapIndex], aInput[iSwapIndex + 1], aInput[i] = aInput[i], aInput[iSwapIndex], aInput[iSwapIndex + 1];
+				end
+
+				iSwapIndex = iSwapIndex + 1;
+			end
+		end
 	end
 
-	function quicksort(array, left, right)
-		if right > left then
-			local pivotNewIndex = partition(array, left, right, left)
-			quicksort(array, left, pivotNewIndex - 1)
-			quicksort(array, pivotNewIndex + 1, right)
+	function ImpactMarkers:Sort()
+		if(self.m_iSize == 0)then
+			return;
+		end
+
+		local vecView = client.GetPlayerView().origin;
+		local aPositions = {};
+		for i = 1, self.m_iSize do
+			aPositions[i] = { (self.m_aPositions[i][1] - vecView):LengthSqr(), self.m_aPositions[i][1], self.m_aPositions[i][2], i == self.m_iSize };
+		end
+
+		Quicksort(aPositions, 1, self.m_iSize);
+		self.m_aPositions = aPositions;
+	end
+
+	function ImpactMarkers:DrawPolygons()
+		if(self.m_iSize == 0)then
+			return;
+		end
+
+		for i = self.m_iSize, 1, -1 do
+			if(self.m_aPositions[i][3])then
+				if(self.m_aPositions[i][4])then
+					if(not self.m_bIsHit)then
+						COLOR(255, 0, 40, 75);
+					else
+						COLOR(0, 255, 40, 75);
+					end
+				else
+					COLOR(255, 255, 255, 35);
+				end
+
+				DrawMarkerPolygon(self.m_aPositions[i][2], self.m_aPositions[i][3]);
+			end
 		end
 	end
 
 	setmetatable(ImpactMarkers, {
 		__call = function(self)
-			if(self.m_iSize == 0)then
-				return;
-			end
-
-			local vecView = client.GetPlayerView().origin;
-			local aPositions = {};
-			for i = 1, self.m_iSize do
-				aPositions[i] = { (self.m_aPositions[i][1] - vecView):LengthSqr(), self.m_aPositions[i][1], self.m_aPositions[i][2], i == self.m_iSize };
-			end
-
-			quicksort(aPositions, 1, self.m_iSize);
-
 			for i = self.m_iSize, 1, -1 do
-				if(aPositions[i][3])then
-					if(aPositions[i][4])then
-						if(self.m_bWasFailure and not self.m_bForcePass)then
-							COLOR(0xFF, 0x32, 0x32, 100);
-						else
-							COLOR(155, 255, 0, 100);
-						end
-					else
-						COLOR(255, 255, 255, 78);
-					end
-
-					DrawMarkerPolygon(aPositions[i][2], aPositions[i][3]);
-				end
-			end
-
-			for i = self.m_iSize, 1, -1 do
-				local pos = WORLD2SCREEN(aPositions[i][2]);
+				local pos = WORLD2SCREEN(self.m_aPositions[i][2]);
 				if(pos)then
-					if(aPositions[i][4])then
-						if(self.m_bWasFailure and not self.m_bForcePass)then
-							COLOR(0xFF, 0x32, 0x32, 255);
+					if(self.m_aPositions[i][4])then
+						if(not self.m_bIsHit)then
+							COLOR(255, 0, 40, 255);
 						else
-							COLOR(155, 255, 0, 255);
+							COLOR(0, 255, 40, 255);
 						end
 					else
-						COLOR(255, 255, 255, 200);
+						COLOR(200, 200, 200, 200);
 					end
 
-					draw.TexturedRect(self.m_iTexture, pos[1] - 4, pos[2] - 4, pos[1] + 4, pos[2] + 4);
+					draw.TexturedRect(self.m_iTexture, pos[1] - 3, pos[2] - 3, pos[1] + 5, pos[2] + 5);
 				end
 			end
 
-			self.m_bForcePass = false;
+			self.m_bIsHit = false;
 			self.m_aPositions = {};
 			self.m_iSize = 0;
 		end;
@@ -374,7 +413,16 @@ do
 
 	setmetatable(TrajectoryLine, {
 		__call = (not config.line.enabled) and (function(...) end) or (config.line.thickness > 1.5) and (function(self)
-			COLOR(config.line.r, config.line.g, config.line.b, config.line.a);
+			if(self.m_iSize <= 1)then
+				return;
+			end
+			
+			if(ImpactMarkers.m_bIsHit)then
+				COLOR(0x96, 0xC8, 0x3B, 0xFF);
+			else
+				COLOR(0xFF, 0x32, 0x32, 0xB3);	
+			end
+
 			local aCords = ConvertCords(self.m_iSize, self.m_aPositions);
 			if(#aCords < 2)then
 				return;
@@ -398,9 +446,18 @@ do
 				draw.TexturedPolygon(textureFill, verts, true);
 			end
 		end) or (function(self)
+			if(self.m_iSize <= 1)then
+				return;
+			end
+
 			local positions, last = self.m_aPositions, nil;
 			
-			COLOR(config.line.r, config.line.g, config.line.b, config.line.a);
+			if(ImpactMarkers.m_bIsHit)then
+				COLOR(0x96, 0xC8, 0x3B, 0xFF);
+			else
+				COLOR(0xFF, 0x32, 0x32, 0xB3);	
+			end
+
 			for i = self.m_iSize, 1, -1 do
 				local new = WORLD2SCREEN(positions[i]);
 				
@@ -448,9 +505,15 @@ do
 	setmetatable(ImpactCamera, metatable);
 end
 
-local PROJECTILE_TYPE_BASIC = 0;
+local PROJECTILE_TYPE_BASIC  = 0;
 local PROJECTILE_TYPE_PSEUDO = 1;
-local PROJECTILY_TYPE_SIMUL = 2;
+local PROJECTILE_TYPE_SIMUL  = 2;
+
+local COLLISION_NORMAL         = 0;
+local COLLISION_HEAL_TEAMMATES = 1;
+local COLLISION_HEAL_BUILDINGS = 2;
+local COLLISION_HEAL_HURT      = 3;
+local COLLISION_NONE           = 4;
 
 local function GetProjectileInformation(...) end
 local function GetSpellInformation(...) end
@@ -486,9 +549,11 @@ do
 			m_flDrag = tbl.flDrag or 0;
 			m_flElasticity = tbl.flElasticity or 0;
 			m_iAlignDistance = tbl.iAlignDistance or 0;
-			m_iTraceMask = tbl.iTraceMask or 100679691;
+			m_iTraceMask = tbl.iTraceMask or 33570827; -- MASK_SOLID
+			m_iCollisionType = tbl.iCollisionType or COLLISION_NORMAL;
 			m_flCollideWithTeammatesDelay = tbl.flCollideWithTeammatesDelay or 0.25;
 			m_flLifetime = tbl.flLifetime or 99999;
+			m_flDamageRadius = tbl.flDamageRadius or 0;
 			m_bStopOnHittingEnemy = tbl.bStopOnHittingEnemy ~= false;
 			m_bCharges = tbl.bCharges or false;
 			m_sModelName = tbl.sModelName or "";
@@ -586,12 +651,10 @@ do
 	local aSpellInfo = {};
 
 	AppendItemDefinitions(1, 
-		18,    -- Rocket Launcher tf_weapon_rocketlauncher
-		205,   -- Rocket Launcher (Renamed/Strange) 	tf_weapon_rocketlauncher
-		228,   -- The Black Box 	tf_weapon_rocketlauncher
-		237,   -- Rocket Jumper 	tf_weapon_rocketlauncher
+		18,    -- Rocket Launcher
+		205,   -- Rocket Launcher (Renamed/Strange)
+		228,   -- The Black Box
 		658,   -- Festive Rocket Launcher
-		730,   -- The Beggar's Bazooka
 		800,   -- Silver Botkiller Rocket Launcher Mk.I
 		809,   -- Gold Botkiller Rocket Launcher Mk.I
 		889,   -- Rust Botkiller Rocket Launcher Mk.I
@@ -601,7 +664,6 @@ do
 		965,   -- Silver Botkiller Rocket Launcher Mk.II
 		974,   -- Gold Botkiller Rocket Launcher Mk.II
 		1085,  -- Festive Black Box
-		1104,  -- The Air Strike
 		15006, -- Woodland Warrior
 		15014, -- Sand Cannon
 		15028, -- American Pastoral
@@ -619,40 +681,63 @@ do
 		vecVelocity = Vector3(1100, 0, 0);
 		vecMaxs = Vector3(0, 0, 0);
 		iAlignDistance = 2000;
+		flDamageRadius = 146;
 
 		GetOffset = function(self, bDucking, bIsFlipped)
 			return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3);
 		end;
 	});
-	
-	AppendItemDefinitions(2, 
-		127 -- The Direct Hit
+
+	AppendItemDefinitions(2,
+		237 -- Rocket Jumper
 	);
 	aProjectileInfo[2] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		vecVelocity = Vector3(2000, 0, 0);
+		iCollisionType = COLLISION_NONE;
 	});
 
 	AppendItemDefinitions(3,
-		414 -- The Liberty Launcher
+		730 -- The Beggar's Bazooka
 	);
 	aProjectileInfo[3] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		vecVelocity = Vector3(1550, 0, 0);
+		flDamageRadius = 116.8;
 	});
 
 	AppendItemDefinitions(4,
-		513 -- The Original
+		1104 -- The Air Strike
 	);
 	aProjectileInfo[4] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+		flDamageRadius = 131.4;
+	});
+	
+	AppendItemDefinitions(5, 
+		127 -- The Direct Hit
+	);
+	aProjectileInfo[5] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+		vecVelocity = Vector3(2000, 0, 0);
+		flDamageRadius = 44;
+	});
+
+	AppendItemDefinitions(6,
+		414 -- The Liberty Launcher
+	);
+	aProjectileInfo[6] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+		vecVelocity = Vector3(1550, 0, 0);
+	});
+
+	AppendItemDefinitions(7,
+		513 -- The Original
+	);
+	aProjectileInfo[7] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 		GetOffset = function(self, bDucking)
 			return Vector3(23.5, 0, bDucking and 8 or -3);
 		end;
 	});
 
 	-- https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/game/shared/tf/tf_weapon_dragons_fury.cpp
-	AppendItemDefinitions(5,
+	AppendItemDefinitions(8,
 		1178 -- Dragon's Fury
 	);
-	aProjectileInfo[5] = DefineBasicProjectileDefinition({
+	aProjectileInfo[8] = DefineBasicProjectileDefinition({
 		vecVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(1, 1, 1);
 
@@ -661,10 +746,10 @@ do
 		end;
 	});
 	
-	AppendItemDefinitions(6, 
+	AppendItemDefinitions(9, 
 		442 -- The Righteous Bison
 	);
-	aProjectileInfo[6] = DefineBasicProjectileDefinition({
+	aProjectileInfo[9] = DefineBasicProjectileDefinition({
 		vecVelocity = Vector3(1200, 0, 0);
 		vecMaxs = Vector3(1, 1, 1);
 		iAlignDistance = 2000;
@@ -674,7 +759,7 @@ do
 		end;
 	});
 
-	AppendItemDefinitions(7,
+	AppendItemDefinitions(10,
 		20,    -- Stickybomb Launcher
 		207,   -- Stickybomb Launcher (Renamed/Strange) 	
 		661,   -- Festive Stickybomb Launcher 	
@@ -700,11 +785,12 @@ do
 		15138, -- Dressed to Kill 	
 		15155  -- Blitzkrieg 	 
 	);
-	aProjectileInfo[7] = DefineSimulProjectileDefinition({
+	aProjectileInfo[10] = DefineSimulProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecAngularVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(2, 2, 2);
 		bCharges = true;
+		flDamageRadius = 150;
 		sModelName = "models/weapons/w_models/w_stickybomb.mdl";
 
 		GetVelocity = function(self, flChargeBeginTime)
@@ -712,10 +798,10 @@ do
 		end;
 	});
 
-	AppendItemDefinitions(8, 
+	AppendItemDefinitions(11, 
 		1150 -- The Quickiebomb Launcher
 	);
-	aProjectileInfo[8] = DefineDerivedProjectileDefinition(aProjectileInfo[7], {
+	aProjectileInfo[11] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
 		sModelName = "models/workshop/weapons/c_models/c_kingmaker_sticky/w_kingmaker_stickybomb.mdl";
 
 		GetVelocity = function(self, flChargeBeginTime)
@@ -723,15 +809,21 @@ do
 		end;
 	});
 
-	AppendItemDefinitions(9, 
-		130, -- The Scottish Resistance
-		265  -- Sticky Jumper
+	AppendItemDefinitions(12, 
+		130 -- The Scottish Resistance
 	);
-	aProjectileInfo[9] = DefineDerivedProjectileDefinition(aProjectileInfo[7], {
+	aProjectileInfo[12] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
 		sModelName = "models/weapons/w_models/w_stickybomb_d.mdl";
 	});
 
-	AppendItemDefinitions(10,
+	AppendItemDefinitions(13, 
+		265 -- Sticky Jumper
+	);
+	aProjectileInfo[13] = DefineDerivedProjectileDefinition(aProjectileInfo[12], {
+		iCollisionType = COLLISION_NONE;
+	});
+
+	AppendItemDefinitions(14,
 		19,    -- Grenade Launcher
 		206,   -- Grenade Launcher (Renamed/Strange)
 		1007,  -- Festive Grenade Launcher
@@ -744,39 +836,42 @@ do
 		15142, -- Warhawk
 		15158  -- Butcher Bird 
 	);
-	aProjectileInfo[10] = DefineSimulProjectileDefinition({
+	aProjectileInfo[14] = DefineSimulProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecVelocity = Vector3(1200, 0, 200);
 		vecAngularVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(2, 2, 2);
 		flElasticity = 0.45;
-		sModelName = "models/weapons/w_models/w_grenade_grenadelauncher.mdl";
 		flLifetime = 2.175;
+		flDamageRadius = 146;
+		sModelName = "models/weapons/w_models/w_grenade_grenadelauncher.mdl";
 	});
 
-	AppendItemDefinitions(11,
+	AppendItemDefinitions(15,
 		1151 -- The Iron Bomber
 	);
-	aProjectileInfo[11] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
+	aProjectileInfo[15] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 		flElasticity = 0.09;
 		flLifetime = 1.6;
+		flDamageRadius = 124;
 	});
 
-	AppendItemDefinitions(12,
+	AppendItemDefinitions(16,
 		308 -- The Loch-n-Load
 	);
-	aProjectileInfo[12] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
+	aProjectileInfo[16] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 		iType = PROJECTILE_TYPE_PSEUDO;
 		vecVelocity = Vector3(1500, 0, 200);
 		flGravity = 1;
 		flDrag = 0.225;
 		flLifetime = 2.3;
+		flDamageRadius = 0;
 	});
 
-	AppendItemDefinitions(13,
+	AppendItemDefinitions(17,
 		996 -- The Loose Cannon
 	);
-	aProjectileInfo[13] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
+	aProjectileInfo[17] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 		vecVelocity = Vector3(1440, 0, 200);
 		vecMaxs = Vector3(6, 6, 6);
 		bStopOnHittingEnemy = false;
@@ -788,12 +883,12 @@ do
 		end;
 	});
 
-	AppendItemDefinitions(14,
+	AppendItemDefinitions(18,
 		56,   -- The Huntsman
 		1005, -- Festive Huntsman
 		1092  -- The Fortified Compound
 	);
-	aProjectileInfo[14] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[18] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(23.5, -8, -3);
 		vecMaxs = Vector3(0, 0, 0);
 		iAlignDistance = 2000;
@@ -816,13 +911,13 @@ do
 		end;
 	});
 
-	AppendItemDefinitions(15,
+	AppendItemDefinitions(19,
 		39,   -- The Flare Gun
+		351,  -- The Detonator
 		595,  -- The Manmelter
-		740,  -- The Scorch Shot
 		1081  -- Festive Flare Gun
 	);
-	aProjectileInfo[15] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[19] = DefinePseudoProjectileDefinition({
 		vecVelocity = Vector3(2000, 0, 0);
 		vecMaxs = Vector3(0, 0, 0);
 		flGravity = 0.3;
@@ -834,32 +929,41 @@ do
 		end;
 	});
 
-	AppendItemDefinitions(16, 
+	AppendItemDefinitions(20, 
+		740 -- The Scorch Shot
+	);
+	aProjectileInfo[20] = DefineDerivedProjectileDefinition(aProjectileInfo[19], {
+		flDamageRadius = 110;
+	});
+
+	AppendItemDefinitions(21, 
 		305, -- Crusader's Crossbow
 		1079 -- Festive Crusader's Crossbow
 	);
-	aProjectileInfo[16] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[21] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(23.5, -8, -3);
 		vecVelocity = Vector3(2400, 0, 0);
 		vecMaxs = Vector3(3, 3, 3);
 		flGravity = 0.2;
 		iAlignDistance = 2000;
+		iCollisionType = COLLISION_HEAL_TEAMMATES;
 	});
 
-	AppendItemDefinitions(17, 
+	AppendItemDefinitions(22, 
 		997 -- The Rescue Ranger
 	);
-	aProjectileInfo[17] = DefineDerivedProjectileDefinition(aProjectileInfo[16], {
+	aProjectileInfo[22] = DefineDerivedProjectileDefinition(aProjectileInfo[21], {
 		vecMaxs = Vector3(1, 1, 1);
+		iCollisionType = COLLISION_HEAL_BUILDINGS;
 	});
 
-	AppendItemDefinitions(18,
+	AppendItemDefinitions(23,
 		17,  -- Syringe Gun
 		36,  -- The Blutsauger
 		204, -- Syringe Gun (Renamed/Strange)
 		412  -- The Overdose
 	);
-	aProjectileInfo[18] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[23] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(16, 6, -8);
 		vecVelocity = Vector3(1000, 0, 0);
 		vecMaxs = Vector3(1, 1, 1);
@@ -867,25 +971,26 @@ do
 		flCollideWithTeammatesDelay = 0;
 	});
 
-	AppendItemDefinitions(19,
+	AppendItemDefinitions(24,
 		58,   -- Jarate
 		222,  -- Mad Milk
 		1083, -- Festive Jarate
 		1105, -- The Self-Aware Beauty Mark
 		1121  -- Mutated Milk
 	);
-	aProjectileInfo[19] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[24] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecVelocity = Vector3(1000, 0, 200);
 		vecMaxs = Vector3(8, 8, 8);
 		flGravity = 1.125;
+		flDamageRadius = 200;
 	});
 
-	AppendItemDefinitions(20,
+	AppendItemDefinitions(25,
 		812, -- The Flying Guillotine
 		833  -- The Flying Guillotine (Genuine)
 	);
-	aProjectileInfo[20] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[25] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(23.5, 8, -3);
 		vecVelocity = Vector3(3000, 0, 300);
 		vecMaxs = Vector3(2, 2, 2);
@@ -893,10 +998,10 @@ do
 		flDrag = 1.3;
 	});
 
-	AppendItemDefinitions(21,
+	AppendItemDefinitions(26,
 		44  -- The Sandman
 	);
-	aProjectileInfo[21] = DefineSimulProjectileDefinition({
+	aProjectileInfo[26] = DefineSimulProjectileDefinition({
 		vecVelocity = Vector3(2985.1118164063, 0, 298.51116943359);
 		vecAngularVelocity = Vector3(0, 50, 0);
 		vecMaxs = Vector3(4.25, 4.25, 4.25);
@@ -918,57 +1023,59 @@ do
 		end;
 	});
 	
-	AppendItemDefinitions(22,
+	AppendItemDefinitions(27,
 		648  -- The Wrap Assassin
 	);
-	aProjectileInfo[22] = DefineDerivedProjectileDefinition(aProjectileInfo[21], {
+	aProjectileInfo[27] = DefineDerivedProjectileDefinition(aProjectileInfo[26], {
 		vecMins = Vector3(-2.990180015564, -2.5989532470703, -2.483987569809);
 		vecMaxs = Vector3(2.6593606472015, 2.5989530086517, 2.4839873313904);
 		flElasticity = 0;
+		flDamageRadius = 50;
 		sModelName = "models/weapons/c_models/c_xms_festive_ornament.mdl";
 	});
 
-	AppendItemDefinitions(23,
+	AppendItemDefinitions(28,
 		441 -- The Cow Mangler 5000
 	);
-	aProjectileInfo[23] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	aProjectileInfo[28] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 		GetOffset = function(self, bDucking, bIsFlipped)
 			return Vector3(23.5, 8 * (bIsFlipped and 1 or -1), bDucking and 8 or -3);
 		end;
 	});
 
 	--https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/shared/tf/tf_weapon_raygun.cpp#L249
-	AppendItemDefinitions(24,
+	AppendItemDefinitions(29,
 		588  -- The Pomson 6000	
 	);
-	aProjectileInfo[24] = DefineDerivedProjectileDefinition(aProjectileInfo[6], {
+	aProjectileInfo[29] = DefineDerivedProjectileDefinition(aProjectileInfo[9], {
 		vecAbsoluteOffset = Vector3(0, 0, -13);
 		flCollideWithTeammatesDelay = 0;
 	});
 
-	AppendItemDefinitions(25,
+	AppendItemDefinitions(30,
 		1180  -- Gas Passer
 	);
-	aProjectileInfo[25] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[30] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecVelocity = Vector3(2000, 0, 200);
 		vecMaxs = Vector3(8, 8, 8);
 		flGravity = 1;
 		flDrag = 1.32;
+		flDamageRadius = 200;
 	});
 
-	AppendItemDefinitions(26,
+	AppendItemDefinitions(31,
 		528  -- The Short Circuit
 	);
-	aProjectileInfo[26] = DefineBasicProjectileDefinition({
+	aProjectileInfo[31] = DefineBasicProjectileDefinition({
 		vecOffset = Vector3(40, 15, -10);
 		vecVelocity = Vector3(700, 0, 0);
 		vecMaxs = Vector3(1, 1, 1);
 		flCollideWithTeammatesDelay = 99999;
 		flLifetime = 1.25;
-	}); -- CONTENTS_HITBOX
+	});
 
-	AppendItemDefinitions(27,
+	AppendItemDefinitions(32,
 		42,   -- Sandvich
 		159,  -- The Dalokohs Bar
 		311,  -- The Buffalo Steak Sandvich
@@ -977,13 +1084,14 @@ do
 		1002, -- Festive Sandvich
 		1190  -- Second Banana
 	);
-	aProjectileInfo[27] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[32] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(0, 0, -8);
 		vecAngleOffset = Vector3(-10, 0, 0);
 		vecVelocity = Vector3(500, 0, 0);
 		vecMaxs = Vector3(17, 17, 10);
 		flGravity = 1.02;
 		iTraceMask = 33636363; -- MASK_PLAYERSOLID
+		iCollisionType = COLLISION_HEAL_HURT;
 	});
 
 	AppendSpellDefinitions(1,
@@ -994,6 +1102,7 @@ do
 		vecMaxs = Vector3(0, 0, 0);
 		flGravity = 1.025;
 		flDrag = 0.15;
+		flDamageRadius = 200;
 
 		GetOffset = function(self, bDucking, bIsFlipped)
 			return Vector3(3, 7, -9);
@@ -1007,6 +1116,7 @@ do
 	aSpellInfo[2] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
 		vecMins = Vector3(-0.019999999552965, -0.019999999552965, -0.019999999552965);
 		vecMaxs = Vector3(0.019999999552965, 0.019999999552965, 0.019999999552965);
+		flDamageRadius = 250;
 	});
 
 	AppendSpellDefinitions(3,
@@ -1146,23 +1256,32 @@ end
 	TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS = 27,
 ]]
 
-local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask)
-	local resultTrace = TRACE_HULL(vecSource, vecSource + (vecForward * (vecVelocity:Length() * flLifetime)), vecMins, vecMaxs, MASK_SOLID, function(pEntity, iMask)
-		if(not pEntity:IsValid() or pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
-			if(pEntity:GetClass() ~= "CTFGenericBomb")then
-				ImpactMarkers.m_bForcePass = true;
-			end
-
-			return true;
+local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
+	local bDeadStop = false;
+	local resultTrace = TRACE_HULL(vecSource, vecSource + (vecForward * (vecVelocity:Length() * flLifetime)), vecMins, vecMaxs, iTraceMask, function(pEntity, iMask)
+		if(not pEntity:IsValid())then
+			return false;
 		end
 
 		local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
-		if(iCollisionGroup == 20  or  -- TF_COLLISIONGROUP_GRENADES
-			iCollisionGroup == 24 or  -- TFCOLLISION_GROUP_ROCKETS
-			iCollisionGroup == 27 or  -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS
-			iCollisionGroup == 1  or  -- COLLISION_GROUP_DEBRIS
-			iCollisionGroup == 25 or  -- TFCOLLISION_GROUP_RESPAWNROOMS 
-			iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
+		if(iCollisionGroup == 25 or   -- TFCOLLISION_GROUP_RESPAWNROOMS 
+			iCollisionGroup == 1)then -- COLLISION_GROUP_DEBRIS
+			return false;
+		end
+		
+		if(iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
+			bDeadStop = true;
+			return true;
+		end
+
+		if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
+			ImpactMarkers.m_bIsHit = not bDeadStop and iCollisionType ~= COLLISION_NONE;
+			return true;
+		end
+
+		if(iCollisionGroup == 20  or   -- TF_COLLISIONGROUP_GRENADES
+			iCollisionGroup == 24 or   -- TFCOLLISION_GROUP_ROCKETS
+			iCollisionGroup == 27)then -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS   
 			return false;
 		end
 
@@ -1186,11 +1305,11 @@ local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMin
 	end
 
 	TrajectoryLine:Insert(resultTrace.endpos);
-	ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
+	ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
 	return resultTrace;
 end
 
-local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask)
+local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
 	local flGravity = flGravity * 400;
 	local vecPosition = vecSource;
 	local resultTrace;
@@ -1199,33 +1318,64 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 	for i = 0.01515, 5, g_flTraceInterval do
 		local flScalar = (flDrag == 0) and i or ((1 - math.exp(-flDrag * i)) / flDrag);
 
-		local scalar = (not fDrag) and i or ((1 - math.exp(-fDrag * i)) / fDrag);
-
 		resultTrace = TRACE_HULL(vecPosition, Vector3(
 			vecVelocity.x * flScalar + vecSource.x,
 			vecVelocity.y * flScalar + vecSource.y,
 			(vecVelocity.z - flGravity * i) * flScalar + vecSource.z
-		), vecMins, vecMaxs, MASK_SOLID, function(pEntity, iMask)
-			if(not pEntity:IsValid() or pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
-				if(pEntity:GetClass() ~= "CTFGenericBomb")then
-					ImpactMarkers.m_bForcePass = true;
-				end
-
+		), vecMins, vecMaxs, iTraceMask, function(pEntity, iMask)
+			if(not pEntity:IsValid())then
 				return true;
 			end
 
 			local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
-			if(iCollisionGroup == 20  or  -- TF_COLLISIONGROUP_GRENADES
-				iCollisionGroup == 24 or  -- TFCOLLISION_GROUP_ROCKETS
-				iCollisionGroup == 27 or  -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS
-				iCollisionGroup == 1  or  -- COLLISION_GROUP_DEBRIS
-				iCollisionGroup == 25 or  -- TFCOLLISION_GROUP_RESPAWNROOMS 
-				iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
+			if(iCollisionGroup == 25 or   -- TFCOLLISION_GROUP_RESPAWNROOMS 
+				iCollisionGroup == 1)then -- COLLISION_GROUP_DEBRIS
+				return false;
+			end
+			
+			if(iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
+				return true;
+			end
+
+			if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
+				if(iCollisionType == COLLISION_HEAL_HURT)then
+					if(pEntity:IsPlayer() and pEntity:GetHealth() < pEntity:GetMaxHealth())then
+						ImpactMarkers.m_bIsHit = true;
+						return true;
+					end
+
+					return false;
+				end
+
+				ImpactMarkers.m_bIsHit = iCollisionType ~= COLLISION_NONE;
+				return true;
+			end
+
+			if(iCollisionGroup == 20  or   -- TF_COLLISIONGROUP_GRENADES
+				iCollisionGroup == 24 or   -- TFCOLLISION_GROUP_ROCKETS
+				iCollisionGroup == 27)then -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS   
 				return false;
 			end
 
 			if(not pEntity:IsPlayer() or mapCollisions[pEntity:GetIndex()])then
+				if(iCollisionType == COLLISION_HEAL_BUILDINGS and (
+					iCollisionGroup == 21 or    -- TFCOLLISION_GROUP_OBJECT
+					iCollisionGroup == 22))then -- TFCOLLISION_GROUP_OBJECT_SOLIDTOPLAYERMOVEMENT
+					ImpactMarkers.m_bIsHit = true;
+					return true;
+				end
+
 				return false;
+			end
+
+			if(pEntity:GetHealth() < pEntity:GetMaxHealth() and iCollisionType == COLLISION_HEAL_HURT)then
+				ImpactMarkers.m_bIsHit = true;
+				return true;
+			end
+
+			if(iCollisionType == COLLISION_HEAL_TEAMMATES)then
+				ImpactMarkers.m_bIsHit = true;
+				return true;
 			end
 
 			mapCollisions[pEntity:GetIndex()] = true;
@@ -1240,13 +1390,13 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 		end
 
 		if(i > flLifetime)then
-			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
+			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
 			return resultTrace;
 		end
 	end
 
 	if(resultTrace)then
-		ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
+		ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
 	end
 
 	return resultTrace;
@@ -1274,7 +1424,7 @@ local function VectorMA(vecStart, flScale, vecDirection)
 	return vecStart + vecDirection * flScale;
 end
 
-local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask)
+local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
 	local resultTrace;
 	local iBounces = 0;
 	local mapCollisions = {};
@@ -1286,28 +1436,34 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 
 		local bIsPlayer = false;
 		local bDeadStop = false;
-		resultTrace = TRACE_HULL(vecStart, pObject:GetPosition(), vecMins, vecMaxs, MASK_SOLID, function(pEntity, iMask)
-			if(not pEntity:IsValid() or pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
-				if(pEntity:GetClass() == "CTFGenericBomb")then
-					bDeadStop = true;
-				else
-					if(bStopOnHittingEnemy and iBounces == 0)then
-						bDeadStop = true;
-					end
-					bIsPlayer = true;
-					ImpactMarkers.m_bForcePass = true;
-				end
-
+		resultTrace = TRACE_HULL(vecStart, pObject:GetPosition(), vecMins, vecMaxs, iTraceMask, function(pEntity, iMask)
+			if(not pEntity:IsValid())then
 				return true;
 			end
 
 			local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
-			if(iCollisionGroup == 20  or  -- TF_COLLISIONGROUP_GRENADES
-				iCollisionGroup == 24 or  -- TFCOLLISION_GROUP_ROCKETS
-				iCollisionGroup == 27 or  -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS
-				iCollisionGroup == 1  or  -- COLLISION_GROUP_DEBRIS
-				iCollisionGroup == 25 or  -- TFCOLLISION_GROUP_RESPAWNROOMS 
-				iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
+			if(iCollisionGroup == 25 or   -- TFCOLLISION_GROUP_RESPAWNROOMS 
+				iCollisionGroup == 1)then -- COLLISION_GROUP_DEBRIS
+				return false;
+			end
+			
+			if(iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
+				return true;
+			end
+
+			if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
+				if((bStopOnHittingEnemy and iBounces == 0) or pEntity:GetClass() == "CTFGenericBomb")then
+					bDeadStop = true;
+				end
+				bIsPlayer = true;
+				ImpactMarkers.m_bIsHit = iCollisionType ~= COLLISION_NONE;
+
+				return true;
+			end
+
+			if(iCollisionGroup == 20  or   -- TF_COLLISIONGROUP_GRENADES
+				iCollisionGroup == 24 or   -- TFCOLLISION_GROUP_ROCKETS
+				iCollisionGroup == 27)then -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS   
 				return false;
 			end
 
@@ -1323,7 +1479,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 		TrajectoryLine:Insert(resultTrace.endpos);
 
 		if(i * g_flTraceInterval > flLifetime)then
-			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
+			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
 			break;
 		end
 
@@ -1335,7 +1491,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 				end
 			end
 
-			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
+			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
 			if(resultTrace.startsolid or bDeadStop)then
 				break;
 			end
@@ -1374,6 +1530,30 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 
 	PhysicsEnvironment:ResetSimulationClock();
 	return resultTrace;
+end
+
+local function EntitySphereQuery(vecCenter, flRadius)
+	local aEntities = {};
+
+	for _, sKey in pairs({
+		"CTFPlayer",
+		"CObjectTeleporter",
+		"CObjectSentrygun",
+		"CObjectDispenser",
+		"CZombie",
+		"CMerasmus",
+		"CEyeballBoss",
+		"CBotNPC"
+	}) do
+		local aEnts = entities.FindByClass(sKey) or {};
+		for _, pEntity in pairs(aEnts)do
+			if((pEntity:GetAbsOrigin() - vecCenter):Length() <= flRadius)then
+				aEntities[#aEntities + 1] = pEntity;
+			end
+		end
+	end
+
+	return aEntities;
 end
 
 callbacks.Register("Draw", function()
@@ -1446,7 +1626,8 @@ callbacks.Register("Draw", function()
 			stInfo.m_flCollideWithTeammatesDelay,
 			stInfo:GetLifetime(flChargeBeginTime),
 			stInfo.m_bStopOnHittingEnemy,
-			stInfo.m_iTraceMask
+			stInfo.m_iTraceMask,
+			stInfo.m_iCollisionType
 		);
 
 	elseif(stInfo.m_iType == PROJECTILE_TYPE_PSEUDO)then
@@ -1460,7 +1641,8 @@ callbacks.Register("Draw", function()
 			stInfo.m_flCollideWithTeammatesDelay,
 			stInfo:GetLifetime(flChargeBeginTime),
 			stInfo.m_bStopOnHittingEnemy,
-			stInfo.m_iTraceMask
+			stInfo.m_iTraceMask,
+			stInfo.m_iCollisionType
 		);
 
 	elseif(stInfo.m_iType == PROJECTILE_TYPE_SIMUL)then
@@ -1476,7 +1658,8 @@ callbacks.Register("Draw", function()
 			stInfo.m_flCollideWithTeammatesDelay,
 			stInfo:GetLifetime(flChargeBeginTime),
 			stInfo.m_bStopOnHittingEnemy,
-			stInfo.m_iTraceMask
+			stInfo.m_iTraceMask,
+			stInfo.m_iCollisionType
 		);
 
 	else
@@ -1489,12 +1672,53 @@ callbacks.Register("Draw", function()
 		g_vEndOrigin = resultTrace.endpos;
 	end
 
-	if TrajectoryLine.m_iSize == 1 then 
-		ImpactMarkers();
-		ImpactCamera();
-		return; 
+	if(not ImpactMarkers.m_bIsHit and ImpactMarkers.m_iSize > 0 and stInfo.m_flDamageRadius > 0 and stInfo.m_iCollisionType ~= COLLISION_NONE)then
+		local flRadius = stInfo.m_flDamageRadius;
+		local vecOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
+		for _, pEntity in pairs(EntitySphereQuery(vecOrigin, flRadius * 2))do
+			local bDeadStop = false;
+			local resultTrace = TRACE_LINE(vecOrigin, pEntity:GetAbsOrigin(), MASK_SOLID, function(pEntity, iMask)
+				if(not pEntity:IsValid())then
+					return false;
+				end
+
+				local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
+				if(iCollisionGroup == 25 or   -- TFCOLLISION_GROUP_RESPAWNROOMS 
+					iCollisionGroup == 1)then -- COLLISION_GROUP_DEBRIS
+					return false;
+				end
+				
+				if(iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
+					bDeadStop = true;
+					return true;
+				end
+
+				if(iCollisionGroup == 20  or   -- TF_COLLISIONGROUP_GRENADES
+					iCollisionGroup == 24 or   -- TFCOLLISION_GROUP_ROCKETS
+					iCollisionGroup == 27)then -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS   
+					return false;
+				end
+
+				if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
+					ImpactMarkers.m_bIsHit = true;
+					return true;
+				end
+
+				return false;
+			end);
+
+			if((resultTrace.endpos - vecOrigin):Length() > flRadius or bDeadStop)then
+				ImpactMarkers.m_bIsHit = false;
+			end
+
+			if(ImpactMarkers.m_bIsHit)then
+				break;
+			end
+		end
 	end
 
+	ImpactMarkers:Sort();
+	ImpactMarkers:DrawPolygons();
 	TrajectoryLine();
 	ImpactMarkers();
 	ImpactCamera();
