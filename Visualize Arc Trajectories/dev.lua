@@ -12,6 +12,20 @@ local config = {
 	};
 	
 	line = {
+		color_hit = {
+			r = 150;
+			g = 200;
+			b = 59;
+			a = 255;
+		};
+
+		color_miss = {
+			r = 255;
+			g = 50;
+			b = 50;
+			a = 179;
+		};
+
 		thickness = 2;
 	};
 
@@ -374,11 +388,8 @@ do
 				return;
 			end
 			
-			if(ImpactMarkers.m_bIsHit)then
-				COLOR(0x96, 0xC8, 0x3B, 0xFF);
-			else
-				COLOR(0xFF, 0x32, 0x32, 0xB3);	
-			end
+			local stColor = ImpactMarkers.m_bIsHit and config.line.color_hit or config.line.color_miss;
+			COLOR(stColor.r, stColor.g, stColor.b, stColor.a);
 
 			local aCords = ConvertCords(self.m_iSize, self.m_aPositions);
 			if(#aCords < 2)then
@@ -409,11 +420,8 @@ do
 
 			local positions, last = self.m_aPositions, nil;
 			
-			if(ImpactMarkers.m_bIsHit)then
-				COLOR(0x96, 0xC8, 0x3B, 0xFF);
-			else
-				COLOR(0xFF, 0x32, 0x32, 0xB3);	
-			end
+			local stColor = ImpactMarkers.m_bIsHit and config.line.color_hit or config.line.color_miss;
+			COLOR(stColor.r, stColor.g, stColor.b, stColor.a);
 
 			for i = self.m_iSize, 1, -1 do
 				local new = WORLD2SCREEN(positions[i]);
