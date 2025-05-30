@@ -9,16 +9,9 @@ local config = {
 	polygon = {
 		enabled = true;
 		size = 10;
-		segments = 12;
 	};
 	
 	line = {
-		enabled = true;
-		r = 255;
-		g = 255;
-		b = 255;
-		a = 155;
-
 		thickness = 2;
 	};
 
@@ -45,8 +38,8 @@ local config = {
 		is_toggle = false;
 	};
 
-	-- 0.5 to 8, determines the size of the segments traced, lower values = worse performance (default 2.5)
-	measure_segment_size = 1;
+	-- 0.5 to 8, determines the size of the segments traced, lower values = worse performance (default 2)
+	measure_segment_size = 2;
 };
 
 
@@ -94,7 +87,7 @@ do
 end
 
 local PhysicsEnvironment = physics.CreateEnvironment();
-PhysicsEnvironment:SetGravity(Vector3( 0, 0, -800));
+PhysicsEnvironment:SetGravity(Vector3(0, 0, -800));
 PhysicsEnvironment:SetAirDensity(2.0);
 PhysicsEnvironment:SetSimulationTimestep(1 / 66);
 
@@ -181,16 +174,13 @@ local function ConvertCords(iSize, aPositions, vecFlagOffset)
 end
 
 local function DrawMarkerPolygon(vecOrigin, vecPlane)
-	local iSegments = config.polygon.segments;
-	local fSegmentAngleOffset = math.pi / iSegments;
-	local fSegmentAngle = fSegmentAngleOffset * 2;
 	local aCords = {};
 	local positions = {};
 	local radius = config.polygon.size;
 
 	if math.abs(vecPlane.z) >= 0.99 then
-		for i = 1, iSegments do
-			local ang = i * fSegmentAngle + fSegmentAngleOffset;
+		for i = 1, 12 do
+			local ang = i * 0.523598776 + 0.261799388;
 			local flCos, flSin = math.cos(ang), math.sin(ang);
 			local pos = WORLD2SCREEN(vecOrigin + Vector3(radius * math.cos(ang), radius * math.sin(ang), 0));
 			if(not pos)then
@@ -206,8 +196,8 @@ local function DrawMarkerPolygon(vecOrigin, vecPlane)
 
 		radius = radius / math.cos(math.asin(vecPlane.z))
 
-		for i = 1, iSegments do
-			local ang = i * fSegmentAngle + fSegmentAngleOffset;
+		for i = 1, 12 do
+			local ang = i * 0.523598776 + 0.261799388;
 			local flCos, flSin = math.cos(ang), math.sin(ang);
 			local pos = WORLD2SCREEN(vecOrigin + (right * (radius * flCos)) + (up * (radius * flSin)));
 			if(not pos)then
@@ -236,10 +226,8 @@ do
 	ImpactMarkers.m_bIsHit = false;
 	ImpactMarkers.m_aPositions = {};
 	ImpactMarkers.m_iSize = 0;
-
 	ImpactMarkers.m_iTexture = 0;
 
-	local iRad1, iRad2 = 2.5, 4;
 	local aData = {};
 	local function IClr(b,a,n)
 		for i = 1, (n or 1) do
@@ -279,37 +267,6 @@ do
 	for i = 1, 2 do
 		IClr(true, 0, 8);
 	end
-
-
-	--[[
-	local flRad1Dist = iRad1 / iRad2;
-	for i = 1, iRad2 * 2 do
-		local flY = (i / (iRad2 * 2) - 0.5) * 2; 
-		for i2 = 1, iRad2 * 2 do
-			local flX = (i2 / (iRad2 * 2) - 0.5) * 2;
-			local flDist = math.sqrt(flY^2 + flX^2);
-
-			local n = #aData;
-			if(flDist > 1)then
-				aData[n + 1] = 0;
-				aData[n + 2] = 0;
-				aData[n + 3] = 0;
-				aData[n + 4] = 0;
-			
-			elseif(flDist > flRad1Dist)then
-				aData[n + 1] = 0;
-				aData[n + 2] = 0;
-				aData[n + 3] = 0;
-				aData[n + 4] = 0xff;
-			else
-				aData[n + 1] = 0xff;
-				aData[n + 2] = 0xff;
-				aData[n + 3] = 0xff;
-				aData[n + 4] = 0xff;
-			end
-		end
-	end
-	]]
 
 	ImpactMarkers.m_iTexture = draw.CreateTextureRGBA(string.char(table.unpack(aData)), 8, 8);
 
@@ -354,7 +311,7 @@ do
 	end
 
 	function ImpactMarkers:DrawPolygons()
-		if(self.m_iSize == 0)then
+		if(self.m_iSize == 0 or not config.polygon.enabled)then
 			return;
 		end
 
@@ -412,7 +369,7 @@ do
 	end
 
 	setmetatable(TrajectoryLine, {
-		__call = (not config.line.enabled) and (function(...) end) or (config.line.thickness > 1.5) and (function(self)
+		__call = (config.line.thickness > 1.5) and (function(self)
 			if(self.m_iSize <= 1)then
 				return;
 			end
@@ -1195,7 +1152,6 @@ do
 end
 
 local g_flTraceInterval = CLAMP(config.measure_segment_size, 0.5, 8) / 66;
-local g_fFlagInterval = g_flTraceInterval * 1320;
 local g_vEndOrigin = Vector3(0, 0, 0);
 local g_bSpellPreferState = config.spells.prefer_showing_spells;
 local g_iLastPollTick = 0;
@@ -1221,40 +1177,6 @@ local function UpdateSpellPreference()
 		g_bSpellPreferState = config.spells.prefer_showing_spells;
 	end
 end
---[[
-	COLLISION_GROUP_NONE  = 0,
-	COLLISION_GROUP_DEBRIS = 1,			// Collides with nothing but world and static stuff
-	COLLISION_GROUP_DEBRIS_TRIGGER = 2, // Same as debris, but hits triggers
-	COLLISION_GROUP_INTERACTIVE_DEBRIS = 3,	// Collides with everything except other interactive debris or debris
-	COLLISION_GROUP_INTERACTIVE = 4,	// Collides with everything except interactive debris or debris
-	COLLISION_GROUP_PLAYER = 5,
-	COLLISION_GROUP_BREAKABLE_GLASS = 6,
-	COLLISION_GROUP_VEHICLE = 7,
-	COLLISION_GROUP_PLAYER_MOVEMENT = 8,  // For HL2, same as Collision_Group_Player, for
-										// TF2, this filters out other players and CBaseObjects
-	COLLISION_GROUP_NPC = 9,			// Generic NPC group
-	COLLISION_GROUP_IN_VEHICLE = 10,		// for any entity inside a vehicle
-	COLLISION_GROUP_WEAPON = 11,			// for any weapons that need collision detection
-	COLLISION_GROUP_VEHICLE_CLIP = 12,	// vehicle clip brush to restrict vehicle movement
-	COLLISION_GROUP_PROJECTILE = 13,		// Projectiles!
-	COLLISION_GROUP_DOOR_BLOCKER = 14,	// Blocks entities not permitted to get near moving doors
-	COLLISION_GROUP_PASSABLE_DOOR = 15,	// Doors that the player shouldn't collide with
-	COLLISION_GROUP_DISSOLVING = 16,		// Things that are dissolving are in this group
-	COLLISION_GROUP_PUSHAWAY = 17,		// Nonsolid on client and server, pushaway in player code
-
-	COLLISION_GROUP_NPC_ACTOR = 18,		// Used so NPCs in scripts ignore the player.
-	COLLISION_GROUP_NPC_SCRIPTED = 19,	// USed for NPCs in scripts that should not collide with each other
-
-	LAST_SHARED_COLLISION_GROUP = 20
-	TF_COLLISIONGROUP_GRENADES = 20,
-	TFCOLLISION_GROUP_OBJECT = 21,
-	TFCOLLISION_GROUP_OBJECT_SOLIDTOPLAYERMOVEMENT = 22,
-	TFCOLLISION_GROUP_COMBATOBJECT = 23,
-	TFCOLLISION_GROUP_ROCKETS = 24,		// Solid to players, but not player movement. ensures touch calls are originating from rocket
-	TFCOLLISION_GROUP_RESPAWNROOMS = 25,
-	TFCOLLISION_GROUP_TANK = 26,
-	TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS = 27,
-]]
 
 local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
 	local bDeadStop = false;
@@ -1299,13 +1221,8 @@ local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMin
 		return resultTrace; 
 	end
 		
-	local iSegments = FLOOR((resultTrace.endpos - resultTrace.startpos):Length() / g_fFlagInterval);
-	for i = 1, iSegments do
-		TrajectoryLine:Insert(vecForward * (i * g_fFlagInterval) + vecSource);
-	end
-
 	TrajectoryLine:Insert(resultTrace.endpos);
-	ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
+	ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
 	return resultTrace;
 end
 
@@ -1390,13 +1307,13 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 		end
 
 		if(i > flLifetime)then
-			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
+			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
 			return resultTrace;
 		end
 	end
 
 	if(resultTrace)then
-		ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
+		ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
 	end
 
 	return resultTrace;
@@ -1418,10 +1335,6 @@ local function PhysicsClipVelocity(vecVelocity, vecNormal, flOverbounce)
 	end
 
 	return vecOut, ((vecNormal.z > 0) and 1 or (vecNormal.z == 0) and 2 or 0);
-end
-
-local function VectorMA(vecStart, flScale, vecDirection)
-	return vecStart + vecDirection * flScale;
 end
 
 local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
@@ -1479,7 +1392,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 		TrajectoryLine:Insert(resultTrace.endpos);
 
 		if(i * g_flTraceInterval > flLifetime)then
-			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
+			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
 			break;
 		end
 
@@ -1491,7 +1404,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 				end
 			end
 
-			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane, resultTrace.fraction);
+			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
 			if(resultTrace.startsolid or bDeadStop)then
 				break;
 			end
