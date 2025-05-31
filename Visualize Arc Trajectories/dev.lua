@@ -1229,12 +1229,12 @@ local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMin
 	end);
 
 	if resultTrace.startsolid then 
-		return resultTrace; 
+		return resultTrace, true; 
 	end
 		
 	TrajectoryLine:Insert(resultTrace.endpos);
 	ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
-	return resultTrace;
+	return resultTrace, true;
 end
 
 local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
@@ -1319,7 +1319,7 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 
 		if(i > flLifetime)then
 			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
-			return resultTrace;
+			return resultTrace, true;
 		end
 	end
 
@@ -1327,7 +1327,7 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 		ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
 	end
 
-	return resultTrace;
+	return resultTrace, true;
 end
 
 local function PhysicsClipVelocity(vecVelocity, vecNormal, flOverbounce)
@@ -1354,6 +1354,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 	local mapCollisions = {};
 	local vecLastBounce;
 	local iSizeHack = 0;
+	local bDied = false;
 	for i = 1, 330 do
 		local vecStart = pObject:GetPosition();
 		PhysicsEnvironment:Simulate(g_flTraceInterval);
@@ -1379,8 +1380,11 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 				if((bStopOnHittingEnemy and iBounces == 0) or pEntity:GetClass() == "CTFGenericBomb")then
 					bDeadStop = true;
 				end
+
 				bIsPlayer = true;
-				ImpactMarkers.m_bIsHit = iCollisionType ~= COLLISION_NONE;
+				if(iBounces == 0 or pEntity:GetClass() == "CTFGenericBomb")then
+					ImpactMarkers.m_bIsHit = iCollisionType ~= COLLISION_NONE;
+				end
 
 				return true;
 			end
@@ -1404,6 +1408,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 
 		if(i * g_flTraceInterval > flLifetime)then
 			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
+			bDied = true;
 			break;
 		end
 
@@ -1416,6 +1421,11 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 			end
 
 			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
+			if(flElasticity == 0)then
+				bDied = true;
+				break;
+			end
+
 			if(resultTrace.startsolid or bDeadStop or not config.enable_bounce)then
 				break;
 			end
@@ -1453,7 +1463,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 	end
 
 	PhysicsEnvironment:ResetSimulationClock();
-	return resultTrace;
+	return resultTrace, bDied and iBounces == 0;
 end
 
 local function EntitySphereQuery(vecCenter, flRadius)
@@ -1603,8 +1613,9 @@ callbacks.Register("Draw", function()
 	TrajectoryLine:Insert(vecSource);
 
 	local resultTrace;
+	local bDied = false;
 	if(stInfo.m_iType == PROJECTILE_TYPE_BASIC)then
-		resultTrace = DoBasicProjectileTrace(
+		resultTrace, bDied = DoBasicProjectileTrace(
 			vecSource,
 			vecViewAngles:Forward(),
 			stInfo:GetVelocity(flChargeBeginTime),
@@ -1618,7 +1629,7 @@ callbacks.Register("Draw", function()
 		);
 
 	elseif(stInfo.m_iType == PROJECTILE_TYPE_PSEUDO)then
-		resultTrace = DoPseudoProjectileTrace(
+		resultTrace, bDied = DoPseudoProjectileTrace(
 			vecSource,
 			VEC_ROT(stInfo:GetVelocity(flChargeBeginTime), vecViewAngles),
 			stInfo:GetGravity(flChargeBeginTime),
@@ -1637,7 +1648,7 @@ callbacks.Register("Draw", function()
 		pObject:SetPosition(vecSource, vecViewAngles, true);
 		pObject:SetVelocity(VEC_ROT(stInfo:GetVelocity(flChargeBeginTime), vecViewAngles), stInfo:GetAngularVelocity(flChargeBeginTime));
 
-		resultTrace = DoSimulProjectileTrace(
+		resultTrace, bDied = DoSimulProjectileTrace(
 			pObject,
 			stInfo.m_flElasticity,
 			stInfo.m_vecMins,
@@ -1659,7 +1670,7 @@ callbacks.Register("Draw", function()
 		g_vEndOrigin = resultTrace.endpos;
 	end
 
-	if(not ImpactMarkers.m_bIsHit and ImpactMarkers.m_iSize > 0 and stInfo.m_flDamageRadius > 0 and stInfo.m_iCollisionType ~= COLLISION_NONE)then
+	if(not ImpactMarkers.m_bIsHit and ImpactMarkers.m_iSize > 0 and stInfo.m_flDamageRadius > 0 and stInfo.m_iCollisionType ~= COLLISION_NONE and bDied)then
 		local flRadius = stInfo.m_flDamageRadius;
 		local vecOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
 		for _, pEntity in pairs(EntitySphereQuery(vecOrigin, flRadius * 2))do
