@@ -1468,13 +1468,76 @@ local function EntitySphereQuery(vecCenter, flRadius)
 	}) do
 		local aEnts = entities.FindByClass(sKey) or {};
 		for _, pEntity in pairs(aEnts)do
-			if((pEntity:GetAbsOrigin() - vecCenter):Length() <= flRadius)then
+			if((pEntity:GetAbsOrigin() - vecCenter):Length() <= flRadius and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
 				aEntities[#aEntities + 1] = pEntity;
 			end
 		end
 	end
 
 	return aEntities;
+end
+
+local function GetEntityEyePosition(pEntity)
+	local sClass = pEntity:GetClass();
+	local vecMins = pEntity:GetMins();
+	local vecMaxs = pEntity:GetMaxs();
+	local vecAbsOrigin = pEntity:GetAbsOrigin();
+	local flModelScale = pEntity:GetPropFloat("m_flModelScale");
+
+	if(sClass == "CObjectSentrygun")then
+		local iUpgradeLevel = pEntity:GetPropInt("m_iUpgradeLevel");
+		if(iUpgradeLevel == 1)then
+			return vecAbsOrigin + Vector3(0, 0, 32) * flModelScale;
+
+		elseif(iUpgradeLevel == 2)then
+			return vecAbsOrigin + Vector3(0, 0, 40) * flModelScale;
+
+		else
+			return vecAbsOrigin + Vector3(0, 0, 46) * flModelScale;
+		end
+
+	elseif(sClass == "CTFPlayer")then
+		if(pEntity:GetPropInt("m_fFlags") & FL_DUCKING ~= 0)then
+			return vecAbsOrigin + Vector3(0, 0, 45) * flModelScale;
+		end
+		
+		local iClass = pEntity:GetPropInt("m_iClass");
+		if(iClass == 0)then -- TF_CLASS_UNDEFINED
+			return vecAbsOrigin + Vector3(0, 0, 72) * flModelScale;
+
+		elseif(iClass == 1)then -- TF_CLASS_SCOUT, TF_FIRST_NORMAL_CLASS
+			return vecAbsOrigin + Vector3(0, 0, 65) * flModelScale;
+
+		elseif(iClass == 2)then -- TF_CLASS_SNIPER
+			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
+
+		elseif(iClass == 3)then -- TF_CLASS_SOLDIER
+			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
+
+		elseif(iClass == 4)then -- TF_CLASS_DEMOMAN
+			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
+
+		elseif(iClass == 5)then -- TF_CLASS_MEDIC
+			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
+
+		elseif(iClass == 6)then -- TF_CLASS_HEAVYWEAPONS
+			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
+
+		elseif(iClass == 7)then -- TF_CLASS_PYRO
+			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
+
+		elseif(iClass == 8)then -- TF_CLASS_SPY
+			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
+
+		elseif(iClass == 9)then -- TF_CLASS_ENGINEER
+			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
+
+		elseif(iClass == 10)then -- TF_CLASS_CIVILIAN, TF_LAST_NORMAL_CLASS
+			return vecAbsOrigin + Vector3(0, 0, 65) * flModelScale;
+		end
+	end
+
+	return vecAbsOrigin + vecMins + (vecMaxs - vecMins) / 2;
 end
 
 callbacks.Register("Draw", function()
@@ -1598,8 +1661,11 @@ callbacks.Register("Draw", function()
 		local vecOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
 		for _, pEntity in pairs(EntitySphereQuery(vecOrigin, flRadius * 2))do
 			local bDeadStop = false;
-			local resultTrace = TRACE_LINE(vecOrigin, pEntity:GetAbsOrigin(), MASK_SOLID, function(pEntity, iMask)
-				if(not pEntity:IsValid())then
+			local vecMin = pEntity:GetMins();
+			local vecMax = pEntity:GetMaxs();
+
+			local resultTrace = TRACE_LINE(vecOrigin, GetEntityEyePosition(pEntity), MASK_SHOT_BRUSHONLY | CONTENTS_MONSTER, function(pEntity, iMask)
+				if(not pEntity:IsValid() or pEntity:GetTeamNumber() == g_iLocalTeamNumber)then
 					return false;
 				end
 
@@ -1620,12 +1686,8 @@ callbacks.Register("Draw", function()
 					return false;
 				end
 
-				if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
-					ImpactMarkers.m_bIsHit = true;
-					return true;
-				end
-
-				return false;
+				ImpactMarkers.m_bIsHit = true;
+				return true;
 			end);
 
 			if((resultTrace.endpos - vecOrigin):Length() > flRadius or bDeadStop)then
