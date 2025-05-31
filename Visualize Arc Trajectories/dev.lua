@@ -54,6 +54,9 @@ local config = {
 
 	-- 0.5 to 8, determines the size of the segments traced, lower values = worse performance (default 2)
 	measure_segment_size = 2;
+
+	-- Projectile bounce visualization can be extremely inaccurate. (default false)
+	enable_bounce = true;
 };
 
 
@@ -1413,7 +1416,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 			end
 
 			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
-			if(resultTrace.startsolid or bDeadStop)then
+			if(resultTrace.startsolid or bDeadStop or not config.enable_bounce)then
 				break;
 			end
 
@@ -1500,7 +1503,7 @@ local function GetEntityEyePosition(pEntity)
 		if(pEntity:GetPropInt("m_fFlags") & FL_DUCKING ~= 0)then
 			return vecAbsOrigin + Vector3(0, 0, 45) * flModelScale;
 		end
-		
+
 		local iClass = pEntity:GetPropInt("m_iClass");
 		if(iClass == 0)then -- TF_CLASS_UNDEFINED
 			return vecAbsOrigin + Vector3(0, 0, 72) * flModelScale;
