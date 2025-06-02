@@ -73,6 +73,7 @@ local LINE = draw.Line;
 local OUTLINED_RECT = draw.OutlinedRect;
 local COLOR = draw.Color;
 
+local g_iHitboxMask = 0x8000000 | 0x40000000; -- CONTENTS_DETAIL | CONTENTS_HITBOX
 local textureFill = draw.CreateTextureRGBA(string.char(255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255), 2, 2);
 local g_iPolygonTexture;
 do
@@ -148,46 +149,6 @@ do
 			return pObject;
 		end;
 	});
-end
-
-local function ConvertCords(iSize, aPositions, vecFlagOffset)
-	local aCords = {};
-	for i = iSize, 1, -1 do
-		local p1 = WORLD2SCREEN(aPositions[i]);
-		if(p1)then
-			local n = #aCords + 1;
-			aCords[n] = p1;
-		end
-	end
-
-	local aReturned = {};
-	if(#aCords < 2)then
-		return {};
-	end
-
-	local x1, y1, x2, y2 = aCords[1][1], aCords[1][2], aCords[2][1], aCords[2][2];
-
-	local flAng = math.atan(y2 - y1, x2 - x1) + math.pi / 2;
-	local flCos, flSin = math.cos(flAng), math.sin(flAng);
-	aReturned[#aReturned + 1] = { x1, y1, flCos, flSin };
-
-	if(#aCords == 2)then
-		aReturned[#aReturned + 1] = { x2, y2, flCos, flSin };
-		return aReturned;
-	end
-
-	for i = 3, #aCords do
-		x1, y1 = x2, y2;
-		x2, y2 = aCords[i][1], aCords[i][2];
-
-		flAng = math.atan(y2 - y1, x2 - x1) + math.pi / 2;
-
-		aReturned[#aReturned + 1] = { x1, y1, math.cos(flAng), math.sin(flAng) };
-		flCos, flSin = math.cos(flAng), math.sin(flAng);
-	end
-
-	aReturned[#aReturned + 1] = { x2, y2, flCos, flSin }; 
-	return aReturned;
 end
 
 local function DrawMarkerPolygon(vecOrigin, vecPlane)
@@ -394,28 +355,64 @@ do
 			local stColor = ImpactMarkers.m_bIsHit and config.line.color_hit or config.line.color_miss;
 			COLOR(stColor.r, stColor.g, stColor.b, stColor.a);
 
-			local aCords = ConvertCords(self.m_iSize, self.m_aPositions);
+			local aCords = {};
+			for i = self.m_iSize, 1, -1 do
+				local p1 = WORLD2SCREEN(self.m_aPositions[i]);
+				if(p1)then
+					local n = #aCords + 1;
+					aCords[n] = p1;
+				end
+			end
+
 			if(#aCords < 2)then
 				return;
 			end
 
 			local flSize = config.line.thickness / 2;
 
+			local x1, y1, x2, y2 = aCords[1][1], aCords[1][2], aCords[2][1], aCords[2][2];
+
+			local flAng = math.atan(y2 - y1, x2 - x1) + math.pi / 2;
+			local flCos, flSin = math.cos(flAng), math.sin(flAng);
+
+			if(#aCords == 2)then
+				draw.TexturedPolygon(textureFill, {
+					{x2 - (flSize * flCos), y2 - (flSize * flSin), 0, 0},
+					{x2 + (flSize * flCos), y2 + (flSize * flSin), 0, 0},
+					{x1 + (flSize * flCos), y1 + (flSize * flSin), 0, 0},
+					{x1 - (flSize * flCos), y1 - (flSize * flSin), 0, 0}
+				}, true);
+				return;
+			end
+
 			local verts = {
-				{aCords[1][1] - (flSize * aCords[1][3]), aCords[1][2] - (flSize * aCords[1][4]), 0, 0},
-				{aCords[1][1] + (flSize * aCords[1][3]), aCords[1][2] + (flSize * aCords[1][4]), 0, 0},
+				{x1 - (flSize * flCos), y1 - (flSize * flSin), 0, 0},
+				{x1 + (flSize * flCos), y1 + (flSize * flSin), 0, 0},
 				{0, 0, 0, 0},
 				{0, 0, 0, 0}
 			};
 
-			for i = 2, #aCords do
+			for i = 3, #aCords do
+				x1, y1 = x2, y2;
+				x2, y2 = aCords[i][1], aCords[i][2];
+
+				flAng = math.atan(y2 - y1, x2 - x1) + math.pi / 2;
+				flCos, flSin = math.cos(flAng), math.sin(flAng);
+
 				verts[4][1], verts[4][2] = verts[1][1], verts[1][2];
 				verts[3][1], verts[3][2] = verts[2][1], verts[2][2];
-				verts[1][1], verts[1][2] = aCords[i][1] - (flSize * aCords[i][3]), aCords[i][2] - (flSize * aCords[i][4]);
-				verts[2][1], verts[2][2] = aCords[i][1] + (flSize * aCords[i][3]), aCords[i][2] + (flSize * aCords[i][4]);
+				verts[1][1], verts[1][2] = x1 - (flSize * flCos), y1 - (flSize * flSin);
+				verts[2][1], verts[2][2] = x1 + (flSize * flCos), y1 + (flSize * flSin);
 				
 				draw.TexturedPolygon(textureFill, verts, true);
 			end
+
+			verts[4][1], verts[4][2] = verts[1][1], verts[1][2];
+			verts[3][1], verts[3][2] = verts[2][1], verts[2][2];
+			verts[1][1], verts[1][2] = x2 - (flSize * flCos), y2 - (flSize * flSin);
+			verts[2][1], verts[2][2] = x2 + (flSize * flCos), y2 + (flSize * flSin);
+			
+			draw.TexturedPolygon(textureFill, verts, true); 
 		end) or (function(self)
 			if(self.m_iSize <= 1)then
 				return;
@@ -1191,7 +1188,8 @@ end
 
 local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
 	local bDeadStop = false;
-	local resultTrace = TRACE_HULL(vecSource, vecSource + (vecForward * (vecVelocity:Length() * flLifetime)), vecMins, vecMaxs, iTraceMask, function(pEntity, iMask)
+	local bHitEnemy = false;
+	local resultTrace = TRACE_HULL(vecSource, vecSource + (vecForward * (vecVelocity:Length() * flLifetime)), vecMins, vecMaxs, iTraceMask | g_iHitboxMask, function(pEntity, iMask)
 		if(not pEntity:IsValid())then
 			return false;
 		end
@@ -1208,7 +1206,7 @@ local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMin
 		end
 
 		if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
-			ImpactMarkers.m_bIsHit = not bDeadStop and iCollisionType ~= COLLISION_NONE;
+			bHitEnemy = bHitEnemy or (not bDeadStop and iCollisionType ~= COLLISION_NONE);
 			return true;
 		end
 
@@ -1229,28 +1227,33 @@ local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMin
 	end);
 
 	if resultTrace.startsolid then 
-		return resultTrace, true; 
+		return true; 
 	end
-		
+
+	if(resultTrace.contents & g_iHitboxMask ~= 0 and bHitEnemy)then
+		ImpactMarkers.m_bIsHit = true;
+	end
+
 	TrajectoryLine:Insert(resultTrace.endpos);
 	ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
-	return resultTrace, true;
+	return true;
 end
 
 local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
 	local flGravity = flGravity * 400;
 	local vecPosition = vecSource;
 	local resultTrace;
-
 	local mapCollisions = {};
 	for i = 0.01515, 5, g_flTraceInterval do
 		local flScalar = (flDrag == 0) and i or ((1 - math.exp(-flDrag * i)) / flDrag);
-
-		resultTrace = TRACE_HULL(vecPosition, Vector3(
+		local vecEndPos = Vector3(
 			vecVelocity.x * flScalar + vecSource.x,
 			vecVelocity.y * flScalar + vecSource.y,
 			(vecVelocity.z - flGravity * i) * flScalar + vecSource.z
-		), vecMins, vecMaxs, iTraceMask, function(pEntity, iMask)
+		);
+
+		local bHitEnemy = false;
+		resultTrace = TRACE_HULL(vecPosition, vecEndPos, vecMins, vecMaxs, iTraceMask | g_iHitboxMask, function(pEntity, iMask)
 			if(not pEntity:IsValid())then
 				return true;
 			end
@@ -1268,14 +1271,14 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 			if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
 				if(iCollisionType == COLLISION_HEAL_HURT)then
 					if(pEntity:IsPlayer() and pEntity:GetHealth() < pEntity:GetMaxHealth())then
-						ImpactMarkers.m_bIsHit = true;
+						bHitEnemy = true;
 						return true;
 					end
 
 					return false;
 				end
 
-				ImpactMarkers.m_bIsHit = iCollisionType ~= COLLISION_NONE;
+				bHitEnemy = iCollisionType ~= COLLISION_NONE;
 				return true;
 			end
 
@@ -1289,7 +1292,7 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 				if(iCollisionType == COLLISION_HEAL_BUILDINGS and (
 					iCollisionGroup == 21 or    -- TFCOLLISION_GROUP_OBJECT
 					iCollisionGroup == 22))then -- TFCOLLISION_GROUP_OBJECT_SOLIDTOPLAYERMOVEMENT
-					ImpactMarkers.m_bIsHit = true;
+					bHitEnemy = true;
 					return true;
 				end
 
@@ -1297,12 +1300,12 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 			end
 
 			if(pEntity:GetHealth() < pEntity:GetMaxHealth() and iCollisionType == COLLISION_HEAL_HURT)then
-				ImpactMarkers.m_bIsHit = true;
+				bHitEnemy = true;
 				return true;
 			end
 
 			if(iCollisionType == COLLISION_HEAL_TEAMMATES)then
-				ImpactMarkers.m_bIsHit = true;
+				bHitEnemy = true;
 				return true;
 			end
 
@@ -1310,16 +1313,33 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 			return i * g_flTraceInterval > flCollideWithTeammatesDelay;
 		end);
 
+		if(i > flLifetime)then
+			local flFraction = (i - flLifetime) / g_flTraceInterval;		
+			local vecEndPos = vecEndPos - ((vecEndPos - resultTrace.startpos) * flFraction);
+			
+			if((vecEndPos - vecPosition):LengthSqr() >= (resultTrace.endpos - vecPosition):LengthSqr())then
+				vecEndPos = resultTrace.endpos;
+				flFraction = 1;
+
+				if(bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0)then
+					ImpactMarkers.m_bIsHit = true;
+				end 
+			end
+
+			ImpactMarkers:Insert(vecEndPos, (flFraction == 1) and resultTrace.plane or nil);
+			TrajectoryLine:Insert(vecEndPos);
+			return true;
+		end
+
+		if(bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0)then
+			ImpactMarkers.m_bIsHit = true;
+		end 
+
 		vecPosition = resultTrace.endpos;
 		TrajectoryLine:Insert(resultTrace.endpos);
 
 		if(resultTrace.fraction ~= 1)then 
 			break; 
-		end
-
-		if(i > flLifetime)then
-			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
-			return resultTrace, true;
 		end
 	end
 
@@ -1327,7 +1347,7 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 		ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
 	end
 
-	return resultTrace, true;
+	return true;
 end
 
 local function PhysicsClipVelocity(vecVelocity, vecNormal, flOverbounce)
@@ -1349,7 +1369,6 @@ local function PhysicsClipVelocity(vecVelocity, vecNormal, flOverbounce)
 end
 
 local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
-	local resultTrace;
 	local iBounces = 0;
 	local mapCollisions = {};
 	local vecLastBounce;
@@ -1361,7 +1380,8 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 
 		local bIsPlayer = false;
 		local bDeadStop = false;
-		resultTrace = TRACE_HULL(vecStart, pObject:GetPosition(), vecMins, vecMaxs, iTraceMask, function(pEntity, iMask)
+		local bHitEnemy = false;
+		local resultTrace = TRACE_HULL(vecStart, pObject:GetPosition(), vecMins, vecMaxs, iTraceMask | g_iHitboxMask, function(pEntity, iMask)
 			if(not pEntity:IsValid())then
 				return true;
 			end
@@ -1383,7 +1403,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 
 				bIsPlayer = true;
 				if(iBounces == 0 or pEntity:GetClass() == "CTFGenericBomb")then
-					ImpactMarkers.m_bIsHit = iCollisionType ~= COLLISION_NONE;
+					bHitEnemy = iCollisionType ~= COLLISION_NONE;
 				end
 
 				return true;
@@ -1403,14 +1423,32 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 			bIsPlayer = i * g_flTraceInterval > flCollideWithTeammatesDelay;
 			return bIsPlayer;
 		end);
-
-		TrajectoryLine:Insert(resultTrace.endpos);
-
+		
 		if(i * g_flTraceInterval > flLifetime)then
-			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
+			local flFraction = ((i * g_flTraceInterval) - flLifetime) / g_flTraceInterval;			
+			local vecEndPos = pObject:GetPosition();
+			local vecEndPos = vecEndPos - ((vecEndPos - resultTrace.startpos) * flFraction);
+			
+			if((vecEndPos - vecStart):LengthSqr() >= (resultTrace.endpos - vecStart):LengthSqr())then
+				vecEndPos = resultTrace.endpos;
+				flFraction = 1;
+
+				if(bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0)then
+					ImpactMarkers.m_bIsHit = true;
+				end
+			end
+
+			ImpactMarkers:Insert(vecEndPos, (flFraction == 1) and resultTrace.plane or nil);
+			TrajectoryLine:Insert(vecEndPos);
 			bDied = true;
 			break;
 		end
+
+		if(bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0)then
+			ImpactMarkers.m_bIsHit = true;
+		end
+
+		TrajectoryLine:Insert(resultTrace.endpos);
 
 		if(resultTrace.fraction ~= 1)then
 			if(vecLastBounce)then
@@ -1421,8 +1459,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 			end
 
 			ImpactMarkers:Insert(resultTrace.endpos, resultTrace.plane);
-			if(flElasticity == 0)then
-				bDied = true;
+			if(flElasticity == 0)then				bDied = true;
 				break;
 			end
 
@@ -1456,14 +1493,10 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 				break;
 			end
 		end
-
-		if(i == 330)then
-			--LOG("Hit the end of alotted simulation time!");
-		end
 	end
 
 	PhysicsEnvironment:ResetSimulationClock();
-	return resultTrace, bDied and iBounces == 0;
+	return bDied and iBounces == 0;
 end
 
 local function EntitySphereQuery(vecCenter, flRadius)
@@ -1475,9 +1508,11 @@ local function EntitySphereQuery(vecCenter, flRadius)
 		"CObjectSentrygun",
 		"CObjectDispenser",
 		"CZombie",
-		"CMerasmus",
+		"CMerasmus", -- Merasmus' collision for projectiles and explosions is just fucked...
 		"CEyeballBoss",
-		"CBotNPC"
+		"CHeadlessHatman",
+		"CBotNPC",
+		"CTFTankBoss"
 	}) do
 		local aEnts = entities.FindByClass(sKey) or {};
 		for _, pEntity in pairs(aEnts)do
@@ -1612,10 +1647,9 @@ callbacks.Register("Draw", function()
 
 	TrajectoryLine:Insert(vecSource);
 
-	local resultTrace;
 	local bDied = false;
 	if(stInfo.m_iType == PROJECTILE_TYPE_BASIC)then
-		resultTrace, bDied = DoBasicProjectileTrace(
+		bDied = DoBasicProjectileTrace(
 			vecSource,
 			vecViewAngles:Forward(),
 			stInfo:GetVelocity(flChargeBeginTime),
@@ -1629,7 +1663,7 @@ callbacks.Register("Draw", function()
 		);
 
 	elseif(stInfo.m_iType == PROJECTILE_TYPE_PSEUDO)then
-		resultTrace, bDied = DoPseudoProjectileTrace(
+		bDied = DoPseudoProjectileTrace(
 			vecSource,
 			VEC_ROT(stInfo:GetVelocity(flChargeBeginTime), vecViewAngles),
 			stInfo:GetGravity(flChargeBeginTime),
@@ -1648,7 +1682,7 @@ callbacks.Register("Draw", function()
 		pObject:SetPosition(vecSource, vecViewAngles, true);
 		pObject:SetVelocity(VEC_ROT(stInfo:GetVelocity(flChargeBeginTime), vecViewAngles), stInfo:GetAngularVelocity(flChargeBeginTime));
 
-		resultTrace, bDied = DoSimulProjectileTrace(
+		bDied = DoSimulProjectileTrace(
 			pObject,
 			stInfo.m_flElasticity,
 			stInfo.m_vecMins,
@@ -1665,51 +1699,50 @@ callbacks.Register("Draw", function()
 		return;
 	end
 
-	if TrajectoryLine.m_iSize == 0 then return end
-	if(resultTrace)then
-		g_vEndOrigin = resultTrace.endpos;
-	end
+	if(ImpactMarkers.m_iSize > 0)then
+		g_vEndOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
 
-	if(not ImpactMarkers.m_bIsHit and ImpactMarkers.m_iSize > 0 and stInfo.m_flDamageRadius > 0 and stInfo.m_iCollisionType ~= COLLISION_NONE and bDied)then
-		local flRadius = stInfo.m_flDamageRadius;
-		local vecOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
-		for _, pEntity in pairs(EntitySphereQuery(vecOrigin, flRadius * 2))do
-			local bDeadStop = false;
-			local vecMin = pEntity:GetMins();
-			local vecMax = pEntity:GetMaxs();
+		if(not ImpactMarkers.m_bIsHit and stInfo.m_flDamageRadius > 0 and stInfo.m_iCollisionType ~= COLLISION_NONE and bDied)then
+			local flRadius = stInfo.m_flDamageRadius;
+			local vecOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
+			for _, pEntity in pairs(EntitySphereQuery(vecOrigin, flRadius * 2))do
+				local bDeadStop = false;
+				local bHitEnemy = false;
 
-			local resultTrace = TRACE_LINE(vecOrigin, GetEntityEyePosition(pEntity), MASK_SHOT_BRUSHONLY | CONTENTS_MONSTER, function(pEntity, iMask)
-				if(not pEntity:IsValid() or pEntity:GetTeamNumber() == g_iLocalTeamNumber)then
-					return false;
-				end
+				local resultTrace = TRACE_LINE(vecOrigin, GetEntityEyePosition(pEntity), 1174421507, function(pEntity, iMask) -- MASK_SHOT_BRUSHONLY | CONTENTS_MONSTER | CONTENTS_HITBOX
+					if(not pEntity:IsValid() or pEntity:GetTeamNumber() == g_iLocalTeamNumber)then
+						return false;
+					end
 
-				local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
-				if(iCollisionGroup == 25 or   -- TFCOLLISION_GROUP_RESPAWNROOMS 
-					iCollisionGroup == 1)then -- COLLISION_GROUP_DEBRIS
-					return false;
-				end
-				
-				if(iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
-					bDeadStop = true;
+					local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
+					if(iCollisionGroup == 25 or   -- TFCOLLISION_GROUP_RESPAWNROOMS 
+						iCollisionGroup == 1)then -- COLLISION_GROUP_DEBRIS
+						return false;
+					end
+					
+					if(iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
+						bDeadStop = true;
+						return true;
+					end
+
+					if(iCollisionGroup == 20  or   -- TF_COLLISIONGROUP_GRENADES
+						iCollisionGroup == 24 or   -- TFCOLLISION_GROUP_ROCKETS
+						iCollisionGroup == 27)then -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS   
+						return false;
+					end
+
+					bHitEnemy = true;
+
 					return true;
+				end);
+
+				if((resultTrace.endpos - vecOrigin):Length() <= flRadius and not bDeadStop and resultTrace.contents & g_iHitboxMask ~= 0)then
+					ImpactMarkers.m_bIsHit = true;
 				end
 
-				if(iCollisionGroup == 20  or   -- TF_COLLISIONGROUP_GRENADES
-					iCollisionGroup == 24 or   -- TFCOLLISION_GROUP_ROCKETS
-					iCollisionGroup == 27)then -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS   
-					return false;
+				if(ImpactMarkers.m_bIsHit)then
+					break;
 				end
-
-				ImpactMarkers.m_bIsHit = true;
-				return true;
-			end);
-
-			if((resultTrace.endpos - vecOrigin):Length() > flRadius or bDeadStop)then
-				ImpactMarkers.m_bIsHit = false;
-			end
-
-			if(ImpactMarkers.m_bIsHit)then
-				break;
 			end
 		end
 	end
