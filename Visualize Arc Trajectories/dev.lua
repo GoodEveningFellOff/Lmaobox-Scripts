@@ -74,7 +74,7 @@ local LINE = draw.Line;
 local OUTLINED_RECT = draw.OutlinedRect;
 local COLOR = draw.Color;
 
-local g_iHitboxMask = 0x8000000 | 0x40000000; -- CONTENTS_DETAIL | CONTENTS_HITBOX
+local g_iHitboxMask = 0x40000000; -- CONTENTS_HITBOX
 local textureFill = draw.CreateTextureRGBA(string.char(255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255), 2, 2);
 local g_iPolygonTexture;
 do
@@ -754,7 +754,7 @@ do
 	aProjectileInfo[10] = DefineSimulProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecAngularVelocity = Vector3(600, 0, 0);
-		vecMaxs = Vector3(2, 2, 2);
+		vecMaxs = Vector3(3.5, 3.5, 3.5);
 		bCharges = true;
 		flDamageRadius = 150;
 		sModelName = "models/weapons/w_models/w_stickybomb.mdl";
@@ -845,7 +845,7 @@ do
 		sModelName = "models/weapons/w_models/w_cannonball.mdl";
 
 		GetLifetime = function(self, flChargeBeginTime)
-			return 1.1 * flChargeBeginTime;
+			return 1 * flChargeBeginTime;
 		end;
 	});
 
@@ -1504,7 +1504,20 @@ local function EntitySphereQuery(vecCenter, flRadius)
 	local aEntities = {};
 
 	for _, sKey in pairs({
-		"CTFPlayer",
+		"CTFPlayer"
+	}) do
+		local aEnts = entities.FindByClass(sKey) or {};
+		for _, pEntity in pairs(aEnts)do
+			local vecOrigin = pEntity:GetAbsOrigin();
+			if((vecOrigin + VEC_CLAMP(vecCenter - vecOrigin, pEntity:GetMins(), pEntity:GetMaxs()) - vecCenter):Length() <= flRadius 
+				and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and pEntity:IsAlive() and not pEntity:IsDormant())then
+				aEntities[#aEntities + 1] = pEntity;
+			end
+			
+		end
+	end
+
+	for _, sKey in pairs({
 		"CObjectTeleporter",
 		"CObjectSentrygun",
 		"CObjectDispenser",
@@ -1519,7 +1532,7 @@ local function EntitySphereQuery(vecCenter, flRadius)
 		for _, pEntity in pairs(aEnts)do
 			local vecOrigin = pEntity:GetAbsOrigin();
 			if((vecOrigin + VEC_CLAMP(vecCenter - vecOrigin, pEntity:GetMins(), pEntity:GetMaxs()) - vecCenter):Length() <= flRadius 
-				and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and pEntity:IsAlive() and not pEntity:IsDormant())then
+				and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and not pEntity:IsDormant())then
 				aEntities[#aEntities + 1] = pEntity;
 			end
 			
