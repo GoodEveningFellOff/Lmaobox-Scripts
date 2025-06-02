@@ -63,6 +63,7 @@ local config = {
 -- Boring shit ahead!
 local CROSS = (function(a, b, c) return (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]); end);
 local CLAMP = (function(a, b, c) return (a<b) and b or (a>c) and c or a; end);
+local VEC_CLAMP = (function(a, b, c) return Vector3(CLAMP(a.x, b.x, c.x), CLAMP(a.y, b.y, c.y), CLAMP(a.z, b.z, c.z)); end);
 local VEC_ROT = (function(a,b) return (b:Forward() * a.x) + (b:Right() * a.y) + (b:Up() * a.z); end);
 local FLOOR = math.floor;
 local TRACE_HULL = engine.TraceHull;
@@ -1321,7 +1322,7 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 				vecEndPos = resultTrace.endpos;
 				flFraction = 1;
 
-				if(bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0)then
+				if(bHitEnemy)then
 					ImpactMarkers.m_bIsHit = true;
 				end 
 			end
@@ -1331,7 +1332,7 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 			return true;
 		end
 
-		if(bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0)then
+		if(bHitEnemy)then
 			ImpactMarkers.m_bIsHit = true;
 		end 
 
@@ -1383,7 +1384,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 		local bHitEnemy = false;
 		local resultTrace = TRACE_HULL(vecStart, pObject:GetPosition(), vecMins, vecMaxs, iTraceMask | g_iHitboxMask, function(pEntity, iMask)
 			if(not pEntity:IsValid())then
-				return true;
+				return false;
 			end
 
 			local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
@@ -1402,7 +1403,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 				end
 
 				bIsPlayer = true;
-				if(iBounces == 0 or pEntity:GetClass() == "CTFGenericBomb")then
+				if(iBounces == 0 or pEntity:GetClass() == "CTFGenericBomb")then 
 					bHitEnemy = iCollisionType ~= COLLISION_NONE;
 				end
 
@@ -1433,7 +1434,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 				vecEndPos = resultTrace.endpos;
 				flFraction = 1;
 
-				if(bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0)then
+				if(bHitEnemy)then
 					ImpactMarkers.m_bIsHit = true;
 				end
 			end
@@ -1444,7 +1445,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 			break;
 		end
 
-		if(bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0)then
+		if(bHitEnemy)then
 			ImpactMarkers.m_bIsHit = true;
 		end
 
@@ -1516,9 +1517,12 @@ local function EntitySphereQuery(vecCenter, flRadius)
 	}) do
 		local aEnts = entities.FindByClass(sKey) or {};
 		for _, pEntity in pairs(aEnts)do
-			if((pEntity:GetAbsOrigin() - vecCenter):Length() <= flRadius and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
+			local vecOrigin = pEntity:GetAbsOrigin();
+			if((vecOrigin + VEC_CLAMP(vecCenter - vecOrigin, pEntity:GetMins(), pEntity:GetMaxs()) - vecCenter):Length() <= flRadius 
+				and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and pEntity:IsAlive() and not pEntity:IsDormant())then
 				aEntities[#aEntities + 1] = pEntity;
 			end
+			
 		end
 	end
 
@@ -1705,11 +1709,11 @@ callbacks.Register("Draw", function()
 		if(not ImpactMarkers.m_bIsHit and stInfo.m_flDamageRadius > 0 and stInfo.m_iCollisionType ~= COLLISION_NONE and bDied)then
 			local flRadius = stInfo.m_flDamageRadius;
 			local vecOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
-			for _, pEntity in pairs(EntitySphereQuery(vecOrigin, flRadius * 2))do
+			for _, pGoalEntity in pairs(EntitySphereQuery(vecOrigin, flRadius))do
 				local bDeadStop = false;
 				local bHitEnemy = false;
 
-				local resultTrace = TRACE_LINE(vecOrigin, GetEntityEyePosition(pEntity), 1174421507, function(pEntity, iMask) -- MASK_SHOT_BRUSHONLY | CONTENTS_MONSTER | CONTENTS_HITBOX
+				local resultTrace = TRACE_LINE(vecOrigin, GetEntityEyePosition(pGoalEntity), 1174421507, function(pEntity, iMask) -- MASK_SHOT_BRUSHONLY | CONTENTS_MONSTER | CONTENTS_HITBOX
 					if(not pEntity:IsValid() or pEntity:GetTeamNumber() == g_iLocalTeamNumber)then
 						return false;
 					end
@@ -1731,12 +1735,15 @@ callbacks.Register("Draw", function()
 						return false;
 					end
 
-					bHitEnemy = true;
+					if(not bDeadStop and pEntity:GetIndex() == pGoalEntity:GetIndex())then
+						bHitEnemy = true;
+					end
 
+					bDeadStop = true;
 					return true;
 				end);
 
-				if((resultTrace.endpos - vecOrigin):Length() <= flRadius and not bDeadStop and resultTrace.contents & g_iHitboxMask ~= 0)then
+				if(resultTrace.fraction == 1 or (bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0))then
 					ImpactMarkers.m_bIsHit = true;
 				end
 
