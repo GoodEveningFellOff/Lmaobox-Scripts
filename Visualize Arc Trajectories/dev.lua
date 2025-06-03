@@ -860,14 +860,6 @@ do
 		iAlignDistance = 2000;
 		bCharges = true;
 
-		GetAngleOffset = function(self, flChargeBeginTime)
-			if(flChargeBeginTime < 5)then
-				return Vector3(0, 0, 0);
-			end
-
-			return Vector3(engine.RandomFloat(-6, 6), engine.RandomFloat(-6, 6), 0);
-		end;
-
 		GetVelocity = function(self, flChargeBeginTime)
 			return Vector3(1800 + CLAMP(flChargeBeginTime, 0, 1) * 800, 0, 0);
 		end;
