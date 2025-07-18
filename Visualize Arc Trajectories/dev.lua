@@ -57,14 +57,18 @@ local config = {
 
 	-- Projectile bounce visualization can be extremely inaccurate. (default false)
 	enable_bounce = true;
+
+	-- Can improve performance while using any weapons with radial damage with the the downside of reduced accuracy (short circuit and dragon's fury) 
+	disable_extra_radial_points = false;
 };
 
 
 -- Boring shit ahead!
-local CROSS = (function(a, b, c) return (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]); end);
-local CLAMP = (function(a, b, c) return (a<b) and b or (a>c) and c or a; end);
-local VEC_CLAMP = (function(a, b, c) return Vector3(CLAMP(a.x, b.x, c.x), CLAMP(a.y, b.y, c.y), CLAMP(a.z, b.z, c.z)); end);
-local VEC_ROT = (function(a,b) return (b:Forward() * a.x) + (b:Right() * a.y) + (b:Up() * a.z); end);
+local CROSS = (function(a,b,c)return(b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1]);end);
+local CLAMP = (function(a,b,c)return(a<b)and b or(a>c)and c or a;end);
+local VEC_CLAMP = (function(a,b,c)return Vector3(CLAMP(a.x,b.x,c.x),CLAMP(a.y,b.y,c.y),CLAMP(a.z,b.z,c.z));end);
+local VEC_ROT = (function(a,b)return(b:Forward()*a.x)+(b:Right()*a.y)+(b:Up()*a.z);end);
+local VEC_BBOX_DIST = (function(a,b,c,d)return(b+VEC_CLAMP(a-b,c,d)-a):Length();end);
 local FLOOR = math.floor;
 local TRACE_HULL = engine.TraceHull;
 local TRACE_LINE = engine.TraceLine;
@@ -74,7 +78,6 @@ local LINE = draw.Line;
 local OUTLINED_RECT = draw.OutlinedRect;
 local COLOR = draw.Color;
 
-local g_iHitboxMask = 0x40000000; -- CONTENTS_HITBOX
 local textureFill = draw.CreateTextureRGBA(string.char(255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255), 2, 2);
 local g_iPolygonTexture;
 do
@@ -520,6 +523,7 @@ do
 			m_flCollideWithTeammatesDelay = tbl.flCollideWithTeammatesDelay or 0.25;
 			m_flLifetime = tbl.flLifetime or 99999;
 			m_flDamageRadius = tbl.flDamageRadius or 0;
+			m_flExplosionRadius = tbl.flExplosionRadius or 0;
 			m_bStopOnHittingEnemy = tbl.bStopOnHittingEnemy ~= false;
 			m_bCharges = tbl.bCharges or false;
 			m_sModelName = tbl.sModelName or "";
@@ -647,7 +651,7 @@ do
 		vecVelocity = Vector3(1100, 0, 0);
 		vecMaxs = Vector3(0, 0, 0);
 		iAlignDistance = 2000;
-		flDamageRadius = 146;
+		flExplosionRadius = 146;
 
 		GetOffset = function(self, bDucking, bIsFlipped)
 			return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3);
@@ -665,14 +669,14 @@ do
 		730 -- The Beggar's Bazooka
 	);
 	aProjectileInfo[3] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		flDamageRadius = 116.8;
+		flExplosionRadius = 116.8;
 	});
 
 	AppendItemDefinitions(4,
 		1104 -- The Air Strike
 	);
 	aProjectileInfo[4] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		flDamageRadius = 131.4;
+		flExplosionRadius = 131.4;
 	});
 	
 	AppendItemDefinitions(5, 
@@ -680,7 +684,7 @@ do
 	);
 	aProjectileInfo[5] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
 		vecVelocity = Vector3(2000, 0, 0);
-		flDamageRadius = 44;
+		flExplosionRadius = 44;
 	});
 
 	AppendItemDefinitions(6,
@@ -706,6 +710,8 @@ do
 	aProjectileInfo[8] = DefineBasicProjectileDefinition({
 		vecVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(1, 1, 1);
+		flDamageRadius = 22.5;
+		flLifetime = 0.835;
 
 		GetOffset = function(self, bDucking, bIsFlipped)
 			return Vector3(3, 7, -9);
@@ -756,7 +762,7 @@ do
 		vecAngularVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(3.5, 3.5, 3.5);
 		bCharges = true;
-		flDamageRadius = 150;
+		flExplosionRadius = 150;
 		sModelName = "models/weapons/w_models/w_stickybomb.mdl";
 
 		GetVelocity = function(self, flChargeBeginTime)
@@ -809,7 +815,7 @@ do
 		vecMaxs = Vector3(2, 2, 2);
 		flElasticity = 0.45;
 		flLifetime = 2.175;
-		flDamageRadius = 146;
+		flExplosionRadius = 146;
 		sModelName = "models/weapons/w_models/w_grenade_grenadelauncher.mdl";
 	});
 
@@ -819,7 +825,7 @@ do
 	aProjectileInfo[15] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
 		flElasticity = 0.09;
 		flLifetime = 1.6;
-		flDamageRadius = 124;
+		flExplosionRadius = 124;
 	});
 
 	AppendItemDefinitions(16,
@@ -831,7 +837,7 @@ do
 		flGravity = 1;
 		flDrag = 0.225;
 		flLifetime = 2.3;
-		flDamageRadius = 0;
+		flExplosionRadius = 0;
 	});
 
 	AppendItemDefinitions(17,
@@ -891,7 +897,7 @@ do
 		740 -- The Scorch Shot
 	);
 	aProjectileInfo[20] = DefineDerivedProjectileDefinition(aProjectileInfo[19], {
-		flDamageRadius = 110;
+		flExplosionRadius = 110;
 	});
 
 	AppendItemDefinitions(21, 
@@ -941,7 +947,7 @@ do
 		vecVelocity = Vector3(1000, 0, 200);
 		vecMaxs = Vector3(8, 8, 8);
 		flGravity = 1.125;
-		flDamageRadius = 200;
+		flExplosionRadius = 200;
 	});
 
 	AppendItemDefinitions(25,
@@ -988,7 +994,7 @@ do
 		vecMins = Vector3(-2.990180015564, -2.5989532470703, -2.483987569809);
 		vecMaxs = Vector3(2.6593606472015, 2.5989530086517, 2.4839873313904);
 		flElasticity = 0;
-		flDamageRadius = 50;
+		flExplosionRadius = 50;
 		sModelName = "models/weapons/c_models/c_xms_festive_ornament.mdl";
 	});
 
@@ -1019,7 +1025,7 @@ do
 		vecMaxs = Vector3(8, 8, 8);
 		flGravity = 1;
 		flDrag = 1.32;
-		flDamageRadius = 200;
+		flExplosionRadius = 200;
 	});
 
 	AppendItemDefinitions(31,
@@ -1031,6 +1037,7 @@ do
 		vecMaxs = Vector3(1, 1, 1);
 		flCollideWithTeammatesDelay = 99999;
 		flLifetime = 1.25;
+		flDamageRadius = 100;
 	});
 
 	AppendItemDefinitions(32,
@@ -1060,7 +1067,7 @@ do
 		vecMaxs = Vector3(0, 0, 0);
 		flGravity = 1.025;
 		flDrag = 0.15;
-		flDamageRadius = 200;
+		flExplosionRadius = 200;
 
 		GetOffset = function(self, bDucking, bIsFlipped)
 			return Vector3(3, 7, -9);
@@ -1074,7 +1081,7 @@ do
 	aSpellInfo[2] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
 		vecMins = Vector3(-0.019999999552965, -0.019999999552965, -0.019999999552965);
 		vecMaxs = Vector3(0.019999999552965, 0.019999999552965, 0.019999999552965);
-		flDamageRadius = 250;
+		flExplosionRadius = 250;
 	});
 
 	AppendSpellDefinitions(3,
@@ -1158,6 +1165,289 @@ local g_bSpellPreferState = config.spells.prefer_showing_spells;
 local g_iLastPollTick = 0;
 local g_iLocalTeamNumber = 0;
 
+local function GetEntityEyePosition(pEntity)
+	local sClass = pEntity:GetClass();
+	local vecMins = pEntity:GetMins();
+	local vecMaxs = pEntity:GetMaxs();
+	local vecAbsOrigin = pEntity:GetAbsOrigin();
+	local flModelScale = pEntity:GetPropFloat("m_flModelScale");
+
+	if(sClass == "CObjectSentrygun")then
+		local iUpgradeLevel = pEntity:GetPropInt("m_iUpgradeLevel");
+		if(iUpgradeLevel == 1)then
+			return vecAbsOrigin + Vector3(0, 0, 32) * flModelScale;
+
+		elseif(iUpgradeLevel == 2)then
+			return vecAbsOrigin + Vector3(0, 0, 40) * flModelScale;
+
+		else
+			return vecAbsOrigin + Vector3(0, 0, 46) * flModelScale;
+		end
+
+	elseif(sClass == "CTFPlayer")then
+		if(pEntity:GetPropInt("m_fFlags") & FL_DUCKING ~= 0)then
+			return vecAbsOrigin + Vector3(0, 0, 45) * flModelScale;
+		end
+
+		local iClass = pEntity:GetPropInt("m_iClass");
+		if(iClass == 0)then -- TF_CLASS_UNDEFINED
+			return vecAbsOrigin + Vector3(0, 0, 72) * flModelScale;
+
+		elseif(iClass == 1)then -- TF_CLASS_SCOUT, TF_FIRST_NORMAL_CLASS
+			return vecAbsOrigin + Vector3(0, 0, 65) * flModelScale;
+
+		elseif(iClass == 2)then -- TF_CLASS_SNIPER
+			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
+
+		elseif(iClass == 3)then -- TF_CLASS_SOLDIER
+			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
+
+		elseif(iClass == 4)then -- TF_CLASS_DEMOMAN
+			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
+
+		elseif(iClass == 5)then -- TF_CLASS_MEDIC
+			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
+
+		elseif(iClass == 6)then -- TF_CLASS_HEAVYWEAPONS
+			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
+
+		elseif(iClass == 7)then -- TF_CLASS_PYRO
+			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
+
+		elseif(iClass == 8)then -- TF_CLASS_SPY
+			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
+
+		elseif(iClass == 9)then -- TF_CLASS_ENGINEER
+			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
+
+		elseif(iClass == 10)then -- TF_CLASS_CIVILIAN, TF_LAST_NORMAL_CLASS
+			return vecAbsOrigin + Vector3(0, 0, 65) * flModelScale;
+		end
+	end
+
+	return vecAbsOrigin + vecMins + (vecMaxs - vecMins) / 2;
+end
+
+local function DoRadialDamageTrace(vecStartPos, vecEndPos, iEntityIndex)
+	local resultTrace = TRACE_LINE(vecStartPos, vecEndPos, 1174421507, function(pEntity, iMask) -- MASK_SHOT_BRUSHONLY | CONTENTS_MONSTER | CONTENTS_HITBOX
+		if(not pEntity:IsValid() or pEntity:GetTeamNumber() == g_iLocalTeamNumber)then
+			return false;
+		end
+
+		local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
+		if(iCollisionGroup == 25 or   -- TFCOLLISION_GROUP_RESPAWNROOMS 
+			iCollisionGroup == 1)then -- COLLISION_GROUP_DEBRIS
+			return false;
+		end
+		
+		if(iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
+			return true;
+		end
+
+		if(iCollisionGroup == 20  or   -- TF_COLLISIONGROUP_GRENADES
+			iCollisionGroup == 24 or   -- TFCOLLISION_GROUP_ROCKETS
+			iCollisionGroup == 27)then -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS   
+			return false;
+		end
+
+		return true;
+	end);
+
+	return resultTrace.fraction == 1 or resultTrace.entity:GetIndex() == iEntityIndex;
+end
+
+
+local function CanDealRadialDamageLine(vecLineBegin, vecLineEnd, flRadius)
+	if(flRadius <= 0)then
+		return false;
+	end
+
+	local vecDirection = vecLineEnd - vecLineBegin;
+	local flLength = vecDirection:Length();
+	vecDirection = vecDirection / flLength;
+
+	for _, sKey in pairs({
+		"CTFPlayer"
+	}) do
+		for _, pEntity in pairs(entities.FindByClass(sKey) or {})do
+			if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and pEntity:IsAlive() and not pEntity:IsDormant())then
+				local vecOrigin = pEntity:GetAbsOrigin();
+				local flBestLength = (vecOrigin - vecLineBegin):Dot(vecDirection); 
+				local vecMins = pEntity:GetMins();
+				local vecMaxs = pEntity:GetMaxs();
+				local vecEntityEyePos = GetEntityEyePosition(pEntity);
+				local iEntityIndex = pEntity:GetIndex();
+				local flBaseOffset = CLAMP((vecMaxs - vecMins):Length2D() / 2, 16, 1024);
+
+				-- Make sure the closest point is within the radius
+				-- The best line might not actually hit the enemy so we need to check more points.
+				if(VEC_BBOX_DIST(vecLineBegin + vecDirection * flBestLength, vecOrigin, vecMins, vecMaxs) <= flRadius)then
+					local flCloseLength = flBestLength;
+					local flFarLength = flBestLength;
+					
+					if(not config.disable_extra_radial_points)then
+						-- Go backwards on the line.
+						local flOffset = flBaseOffset;
+						while(flOffset > 1 and flCloseLength > 0)do
+							if(VEC_BBOX_DIST(vecLineBegin + vecDirection * (flCloseLength - flOffset), vecOrigin, vecMins, vecMaxs) <= flRadius)then
+								flCloseLength = CLAMP(flCloseLength - flOffset, 0, flBestLength);
+							else
+								flOffset = flOffset / 2;
+							end
+						end
+
+						-- Go forwards on the line.
+						flOffset = flBaseOffset;
+						while(flOffset > 1 and flFarLength < flLength)do
+							if(VEC_BBOX_DIST(vecLineBegin + vecDirection * (flFarLength + flOffset), vecOrigin, vecMins, vecMaxs) <= flRadius)then
+								flFarLength = CLAMP(flFarLength + flOffset, flBestLength, flLength);
+							else
+								flOffset = flOffset / 2;
+							end
+						end
+					end
+
+					-- Now do the three traces with our close, best, and far lengths.
+					if(flCloseLength <= flLength and flCloseLength >= 0 and 
+						DoRadialDamageTrace(vecLineBegin + vecDirection * flCloseLength, vecEntityEyePos, iEntityIndex))then
+						return true;
+					end
+
+					if(flBestLength <= flLength and flBestLength >= 0 and 
+						DoRadialDamageTrace(vecLineBegin + vecDirection * flBestLength, vecEntityEyePos, iEntityIndex))then
+						return true;
+					end
+
+					if(flFarLength <= flLength and flFarLength >= 0 and 
+						DoRadialDamageTrace(vecLineBegin + vecDirection * flFarLength, vecEntityEyePos, iEntityIndex))then
+						return true;
+					end
+				end
+			end
+		end
+	end
+
+	-- Do cheap calculations for anything that isnt a player.
+	for _, sKey in pairs({
+		"CObjectTeleporter",
+		"CObjectSentrygun",
+		"CObjectDispenser",
+		"CZombie",
+		"CMerasmus", -- Merasmus' collision for projectiles and explosions is just fucked...
+		"CEyeballBoss",
+		"CHeadlessHatman",
+		"CBotNPC",
+		"CTFTankBoss"
+	}) do
+		for _, pEntity in pairs(entities.FindByClass(sKey) or {})do
+			if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and not pEntity:IsDormant())then
+				local vecOrigin = pEntity:GetAbsOrigin();
+				local flBestLength = (vecOrigin - vecLineBegin):Dot(vecDirection); 
+				local vecMins = pEntity:GetMins();
+				local vecMaxs = pEntity:GetMaxs();
+				local vecEntityEyePos = GetEntityEyePosition(pEntity);
+				local iEntityIndex = pEntity:GetIndex();
+				local flBaseOffset = CLAMP((vecMaxs - vecMins):Length2D() / 2, 16, 1024);
+
+				-- Make sure the closest point is within the radius
+				-- The best line might not actually hit the enemy so we need to check more points.
+				if(VEC_BBOX_DIST(vecLineBegin + vecDirection * flBestLength, vecOrigin, vecMins, vecMaxs) <= flRadius)then					
+					local flCloseLength = flBestLength;
+					local flFarLength = flBestLength;
+					
+					if(not config.disable_extra_radial_points)then
+						-- Go backwards on the line.
+						local flOffset = flBaseOffset;
+						while(flOffset > 1 and flCloseLength > 0)do
+							if(VEC_BBOX_DIST(vecLineBegin + vecDirection * (flCloseLength - flOffset), vecOrigin, vecMins, vecMaxs) <= flRadius)then
+								flCloseLength = CLAMP(flCloseLength - flOffset, 0, flBestLength);
+							else
+								flOffset = flOffset / 2;
+							end
+						end
+
+						-- Go forwards on the line.
+						flOffset = flBaseOffset;
+						while(flOffset > 1 and flFarLength < flLength)do
+							if(VEC_BBOX_DIST(vecLineBegin + vecDirection * (flFarLength + flOffset), vecOrigin, vecMins, vecMaxs) <= flRadius)then
+								flFarLength = CLAMP(flFarLength + flOffset, flBestLength, flLength);
+							else
+								flOffset = flOffset / 2;
+							end
+						end
+					end
+
+					-- Now do the three traces with our close, best, and far lengths.
+					if(flCloseLength <= flLength and flCloseLength >= 0 and 
+						DoRadialDamageTrace(vecLineBegin + vecDirection * flCloseLength, vecEntityEyePos, iEntityIndex))then
+						return true;
+					end
+
+					if(flBestLength <= flLength and flBestLength >= 0 and 
+						DoRadialDamageTrace(vecLineBegin + vecDirection * flBestLength, vecEntityEyePos, iEntityIndex))then
+						return true;
+					end
+
+					if(flFarLength <= flLength and flFarLength >= 0 and 
+						DoRadialDamageTrace(vecLineBegin + vecDirection * flFarLength, vecEntityEyePos, iEntityIndex))then
+						return true;
+					end
+				end
+			end
+		end
+	end
+
+	return false;
+end
+
+local function CanDealRadialDamage(flRadius, vecCenter)
+	if(flRadius <= 0)then
+		return false;
+	end
+
+	for _, sKey in pairs({
+		"CTFPlayer"
+	}) do
+		local aEnts = entities.FindByClass(sKey) or {};
+		for _, pEntity in pairs(aEnts)do
+			local vecOrigin = pEntity:GetAbsOrigin();
+			if(VEC_BBOX_DIST(vecCenter, vecOrigin, pEntity:GetMins(), pEntity:GetMaxs()) <= flRadius 
+				and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and pEntity:IsAlive() and not pEntity:IsDormant())then
+				if(DoRadialDamageTrace(vecCenter, GetEntityEyePosition(pEntity), pEntity:GetIndex()))then
+					return true;
+				end
+			end
+			
+		end
+	end
+
+	for _, sKey in pairs({
+		"CObjectTeleporter",
+		"CObjectSentrygun",
+		"CObjectDispenser",
+		"CZombie",
+		"CMerasmus", -- Merasmus' collision for projectiles and explosions is just fucked...
+		"CEyeballBoss",
+		"CHeadlessHatman",
+		"CBotNPC",
+		"CTFTankBoss"
+	}) do
+		local aEnts = entities.FindByClass(sKey) or {};
+		for _, pEntity in pairs(aEnts)do
+			local vecOrigin = pEntity:GetAbsOrigin();
+			if(VEC_BBOX_DIST(vecCenter, vecOrigin, pEntity:GetMins(), pEntity:GetMaxs()) <= flRadius 
+				and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and not pEntity:IsDormant())then
+				if(DoRadialDamageTrace(vecCenter, GetEntityEyePosition(pEntity), pEntity:GetIndex()))then
+					return true;
+				end
+			end
+			
+		end
+	end
+
+	return false;
+end
+
 local function UpdateSpellPreference()
 	if(config.spells.show_other_key == -1)then
 		return;
@@ -1179,10 +1469,21 @@ local function UpdateSpellPreference()
 	end
 end
 
-local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
-	local bDeadStop = false;
+local function DoBasicProjectileTrace(
+	vecSource, 
+	vecForward, 
+	vecVelocity, 
+	vecMins, 
+	vecMaxs, 
+	flCollideWithTeammatesDelay, 
+	flLifetime, 
+	bStopOnHittingEnemy,
+	flDamageRadius, 
+	iTraceMask, 
+	iCollisionType)
+
 	local bHitEnemy = false;
-	local resultTrace = TRACE_HULL(vecSource, vecSource + (vecForward * (vecVelocity:Length() * flLifetime)), vecMins, vecMaxs, iTraceMask | g_iHitboxMask, function(pEntity, iMask)
+	local resultTrace = TRACE_HULL(vecSource, vecSource + (vecForward * (vecVelocity:Length() * flLifetime)), vecMins, vecMaxs, iTraceMask, function(pEntity, iMask)
 		if(not pEntity:IsValid())then
 			return false;
 		end
@@ -1194,12 +1495,11 @@ local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMin
 		end
 		
 		if(iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
-			bDeadStop = true;
 			return true;
 		end
 
 		if(pEntity:GetTeamNumber() ~= g_iLocalTeamNumber)then
-			bHitEnemy = bHitEnemy or (not bDeadStop and iCollisionType ~= COLLISION_NONE);
+			bHitEnemy = bHitEnemy or iCollisionType ~= COLLISION_NONE;
 			return true;
 		end
 
@@ -1222,8 +1522,11 @@ local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMin
 	if resultTrace.startsolid then 
 		return true; 
 	end
+	
+	if(bHitEnemy and resultTrace.entity:IsValid() and resultTrace.entity:GetPropInt("m_CollisionGroup") ~= 0)then
+		ImpactMarkers.m_bIsHit = true;
 
-	if(resultTrace.contents & g_iHitboxMask ~= 0 and bHitEnemy)then
+	elseif(CanDealRadialDamageLine(resultTrace.startpos, resultTrace.endpos, flDamageRadius))then
 		ImpactMarkers.m_bIsHit = true;
 	end
 
@@ -1232,7 +1535,19 @@ local function DoBasicProjectileTrace(vecSource, vecForward, vecVelocity, vecMin
 	return true;
 end
 
-local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
+local function DoPseudoProjectileTrace(
+	vecSource, 
+	vecVelocity, 
+	flGravity, 
+	flDrag, 
+	vecMins, 
+	vecMaxs, 
+	flCollideWithTeammatesDelay, 
+	flLifetime, 
+	bStopOnHittingEnemy,
+	iTraceMask, 
+	iCollisionType)
+
 	local flGravity = flGravity * 400;
 	local vecPosition = vecSource;
 	local resultTrace;
@@ -1246,7 +1561,7 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 		);
 
 		local bHitEnemy = false;
-		resultTrace = TRACE_HULL(vecPosition, vecEndPos, vecMins, vecMaxs, iTraceMask | g_iHitboxMask, function(pEntity, iMask)
+		resultTrace = TRACE_HULL(vecPosition, vecEndPos, vecMins, vecMaxs, iTraceMask, function(pEntity, iMask)
 			if(not pEntity:IsValid())then
 				return true;
 			end
@@ -1314,7 +1629,7 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 				vecEndPos = resultTrace.endpos;
 				flFraction = 1;
 
-				if(bHitEnemy)then
+				if(bHitEnemy and resultTrace.entity:IsValid() and resultTrace.entity:GetPropInt("m_CollisionGroup") ~= 0)then
 					ImpactMarkers.m_bIsHit = true;
 				end 
 			end
@@ -1324,7 +1639,7 @@ local function DoPseudoProjectileTrace(vecSource, vecVelocity, flGravity, flDrag
 			return true;
 		end
 
-		if(bHitEnemy)then
+		if(bHitEnemy and resultTrace.entity:IsValid() and resultTrace.entity:GetPropInt("m_CollisionGroup") ~= 0)then
 			ImpactMarkers.m_bIsHit = true;
 		end 
 
@@ -1361,7 +1676,17 @@ local function PhysicsClipVelocity(vecVelocity, vecNormal, flOverbounce)
 	return vecOut, ((vecNormal.z > 0) and 1 or (vecNormal.z == 0) and 2 or 0);
 end
 
-local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, flCollideWithTeammatesDelay, flLifetime, bStopOnHittingEnemy, iTraceMask, iCollisionType)
+local function DoSimulProjectileTrace(
+	pObject, 
+	flElasticity, 
+	vecMins, 
+	vecMaxs, 
+	flCollideWithTeammatesDelay, 
+	flLifetime, 
+	bStopOnHittingEnemy, 
+	iTraceMask, 
+	iCollisionType)
+
 	local iBounces = 0;
 	local mapCollisions = {};
 	local vecLastBounce;
@@ -1374,7 +1699,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 		local bIsPlayer = false;
 		local bDeadStop = false;
 		local bHitEnemy = false;
-		local resultTrace = TRACE_HULL(vecStart, pObject:GetPosition(), vecMins, vecMaxs, iTraceMask | g_iHitboxMask, function(pEntity, iMask)
+		local resultTrace = TRACE_HULL(vecStart, pObject:GetPosition(), vecMins, vecMaxs, iTraceMask, function(pEntity, iMask)
 			if(not pEntity:IsValid())then
 				return false;
 			end
@@ -1426,7 +1751,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 				vecEndPos = resultTrace.endpos;
 				flFraction = 1;
 
-				if(bHitEnemy)then
+				if(bHitEnemy and resultTrace.entity:IsValid() and resultTrace.entity:GetPropInt("m_CollisionGroup") ~= 0)then
 					ImpactMarkers.m_bIsHit = true;
 				end
 			end
@@ -1437,7 +1762,7 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 			break;
 		end
 
-		if(bHitEnemy)then
+		if(bHitEnemy and resultTrace.entity:IsValid() and resultTrace.entity:GetPropInt("m_CollisionGroup") ~= 0)then
 			ImpactMarkers.m_bIsHit = true;
 		end
 
@@ -1492,111 +1817,6 @@ local function DoSimulProjectileTrace(pObject, flElasticity, vecMins, vecMaxs, f
 	return bDied and iBounces == 0;
 end
 
-local function EntitySphereQuery(vecCenter, flRadius)
-	local aEntities = {};
-
-	for _, sKey in pairs({
-		"CTFPlayer"
-	}) do
-		local aEnts = entities.FindByClass(sKey) or {};
-		for _, pEntity in pairs(aEnts)do
-			local vecOrigin = pEntity:GetAbsOrigin();
-			if((vecOrigin + VEC_CLAMP(vecCenter - vecOrigin, pEntity:GetMins(), pEntity:GetMaxs()) - vecCenter):Length() <= flRadius 
-				and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and pEntity:IsAlive() and not pEntity:IsDormant())then
-				aEntities[#aEntities + 1] = pEntity;
-			end
-			
-		end
-	end
-
-	for _, sKey in pairs({
-		"CObjectTeleporter",
-		"CObjectSentrygun",
-		"CObjectDispenser",
-		"CZombie",
-		"CMerasmus", -- Merasmus' collision for projectiles and explosions is just fucked...
-		"CEyeballBoss",
-		"CHeadlessHatman",
-		"CBotNPC",
-		"CTFTankBoss"
-	}) do
-		local aEnts = entities.FindByClass(sKey) or {};
-		for _, pEntity in pairs(aEnts)do
-			local vecOrigin = pEntity:GetAbsOrigin();
-			if((vecOrigin + VEC_CLAMP(vecCenter - vecOrigin, pEntity:GetMins(), pEntity:GetMaxs()) - vecCenter):Length() <= flRadius 
-				and pEntity:GetTeamNumber() ~= g_iLocalTeamNumber and not pEntity:IsDormant())then
-				aEntities[#aEntities + 1] = pEntity;
-			end
-			
-		end
-	end
-
-	return aEntities;
-end
-
-local function GetEntityEyePosition(pEntity)
-	local sClass = pEntity:GetClass();
-	local vecMins = pEntity:GetMins();
-	local vecMaxs = pEntity:GetMaxs();
-	local vecAbsOrigin = pEntity:GetAbsOrigin();
-	local flModelScale = pEntity:GetPropFloat("m_flModelScale");
-
-	if(sClass == "CObjectSentrygun")then
-		local iUpgradeLevel = pEntity:GetPropInt("m_iUpgradeLevel");
-		if(iUpgradeLevel == 1)then
-			return vecAbsOrigin + Vector3(0, 0, 32) * flModelScale;
-
-		elseif(iUpgradeLevel == 2)then
-			return vecAbsOrigin + Vector3(0, 0, 40) * flModelScale;
-
-		else
-			return vecAbsOrigin + Vector3(0, 0, 46) * flModelScale;
-		end
-
-	elseif(sClass == "CTFPlayer")then
-		if(pEntity:GetPropInt("m_fFlags") & FL_DUCKING ~= 0)then
-			return vecAbsOrigin + Vector3(0, 0, 45) * flModelScale;
-		end
-
-		local iClass = pEntity:GetPropInt("m_iClass");
-		if(iClass == 0)then -- TF_CLASS_UNDEFINED
-			return vecAbsOrigin + Vector3(0, 0, 72) * flModelScale;
-
-		elseif(iClass == 1)then -- TF_CLASS_SCOUT, TF_FIRST_NORMAL_CLASS
-			return vecAbsOrigin + Vector3(0, 0, 65) * flModelScale;
-
-		elseif(iClass == 2)then -- TF_CLASS_SNIPER
-			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
-
-		elseif(iClass == 3)then -- TF_CLASS_SOLDIER
-			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
-
-		elseif(iClass == 4)then -- TF_CLASS_DEMOMAN
-			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
-
-		elseif(iClass == 5)then -- TF_CLASS_MEDIC
-			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
-
-		elseif(iClass == 6)then -- TF_CLASS_HEAVYWEAPONS
-			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
-
-		elseif(iClass == 7)then -- TF_CLASS_PYRO
-			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
-
-		elseif(iClass == 8)then -- TF_CLASS_SPY
-			return vecAbsOrigin + Vector3(0, 0, 75) * flModelScale;
-
-		elseif(iClass == 9)then -- TF_CLASS_ENGINEER
-			return vecAbsOrigin + Vector3(0, 0, 68) * flModelScale;
-
-		elseif(iClass == 10)then -- TF_CLASS_CIVILIAN, TF_LAST_NORMAL_CLASS
-			return vecAbsOrigin + Vector3(0, 0, 65) * flModelScale;
-		end
-	end
-
-	return vecAbsOrigin + vecMins + (vecMaxs - vecMins) / 2;
-end
-
 callbacks.Register("Draw", function()
 	UpdateSpellPreference();
 
@@ -1647,7 +1867,7 @@ callbacks.Register("Draw", function()
 
 	if(stInfo.m_iAlignDistance > 0)then
 		local vecGoalPoint = vecLocalView + (vecViewAngles:Forward() * stInfo.m_iAlignDistance);
-		local res = engine.TraceLine(vecLocalView, vecGoalPoint, 100679691);
+		local res = TRACE_LINE(vecLocalView, vecGoalPoint, 100679691);
 		vecViewAngles = (((res.fraction <= 0.1) and vecGoalPoint or res.endpos) - vecSource):Angles();
 	end
 
@@ -1667,6 +1887,7 @@ callbacks.Register("Draw", function()
 			stInfo.m_flCollideWithTeammatesDelay,
 			stInfo:GetLifetime(flChargeBeginTime),
 			stInfo.m_bStopOnHittingEnemy,
+			stInfo.m_flDamageRadius,
 			stInfo.m_iTraceMask,
 			stInfo.m_iCollisionType
 		);
@@ -1704,58 +1925,14 @@ callbacks.Register("Draw", function()
 		);
 
 	else
-		LOG(string.format("Unknown projectile type \"%s\"!", stInfo.m_iType));
 		return;
 	end
 
 	if(ImpactMarkers.m_iSize > 0)then
 		g_vEndOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
 
-		if(not ImpactMarkers.m_bIsHit and stInfo.m_flDamageRadius > 0 and stInfo.m_iCollisionType ~= COLLISION_NONE and bDied)then
-			local flRadius = stInfo.m_flDamageRadius;
-			local vecOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
-			for _, pGoalEntity in pairs(EntitySphereQuery(vecOrigin, flRadius))do
-				local bDeadStop = false;
-				local bHitEnemy = false;
-
-				local resultTrace = TRACE_LINE(vecOrigin, GetEntityEyePosition(pGoalEntity), 1174421507, function(pEntity, iMask) -- MASK_SHOT_BRUSHONLY | CONTENTS_MONSTER | CONTENTS_HITBOX
-					if(not pEntity:IsValid() or pEntity:GetTeamNumber() == g_iLocalTeamNumber)then
-						return false;
-					end
-
-					local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
-					if(iCollisionGroup == 25 or   -- TFCOLLISION_GROUP_RESPAWNROOMS 
-						iCollisionGroup == 1)then -- COLLISION_GROUP_DEBRIS
-						return false;
-					end
-					
-					if(iCollisionGroup == 0)then -- COLLISION_GROUP_NONE
-						bDeadStop = true;
-						return true;
-					end
-
-					if(iCollisionGroup == 20  or   -- TF_COLLISIONGROUP_GRENADES
-						iCollisionGroup == 24 or   -- TFCOLLISION_GROUP_ROCKETS
-						iCollisionGroup == 27)then -- TFCOLLISION_GROUP_ROCKET_BUT_NOT_WITH_OTHER_ROCKETS   
-						return false;
-					end
-
-					if(not bDeadStop and pEntity:GetIndex() == pGoalEntity:GetIndex())then
-						bHitEnemy = true;
-					end
-
-					bDeadStop = true;
-					return true;
-				end);
-
-				if(resultTrace.fraction == 1 or (bHitEnemy and resultTrace.contents & g_iHitboxMask ~= 0))then
-					ImpactMarkers.m_bIsHit = true;
-				end
-
-				if(ImpactMarkers.m_bIsHit)then
-					break;
-				end
-			end
+		if(not ImpactMarkers.m_bIsHit and stInfo.m_iCollisionType ~= COLLISION_NONE and bDied)then
+			ImpactMarkers.m_bIsHit = CanDealRadialDamage(stInfo.m_flExplosionRadius, ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1]);
 		end
 	end
 
