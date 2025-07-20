@@ -3,10 +3,13 @@ do
     local g_flScale = 0;
     local g_mapFonts = {};
 
+    local g_iX = 0;
     local g_iY = 0;
     local g_iYOffset = 0;
     local g_iXOffset = 0;
-    local g_iFadeXAdd = 0;
+    local g_iTextOffset = 0;
+    local g_iFadeOffset = 0;
+    local g_iFadeAdd = 0;
 
     local g_texture = (function()
         local chars = {}
@@ -30,6 +33,8 @@ do
             return;
         end
         
+        g_iY = ctx.height - math.floor(flScale * 349);
+        flScale = math.max(flScale, 1);
         if(not g_mapFonts[flScale])then
             g_mapFonts[flScale] = { 
                 draw.CreateFont("Calibri", math.floor(flScale * 28), 600, 1168),
@@ -38,7 +43,6 @@ do
         end
 
         g_flScale = flScale;
-        g_iY = ctx.height - math.floor(flScale * 349);
         g_iYOffset = math.floor(g_flScale * 41);
         g_iTextOffset = math.floor(g_flScale * 3);
         g_iFadeOffset = math.floor(g_flScale * 33);
@@ -52,6 +56,7 @@ do
             return;
         end
 
+        draw.SetFont(aFonts[1]);
         local iTextWidth = draw.GetTextSize(sText)
         draw.Color(0, 0, 0, aColor[4]);
         draw.TexturedRect(g_texture, g_iX - g_iFadeAdd, g_iY, g_iX + g_iFadeAdd + iTextWidth, g_iY + g_iFadeOffset);
@@ -117,44 +122,72 @@ callbacks.Register("CreateMove", function(cmd)
     can_crit, is_ducking = CanWeaponRandomCrit(pLocal:GetPropEntity("m_hActiveWeapon")), gui.GetValue("Duck Speed") == 1 and ((pLocal:GetPropInt("m_fFlags") or 0) & 3) == 3;
 end);
 
+local CLAMP=(function(a,b,c)return(a<b)and b or(a>c)and c or a end);
+
+local function ColorLerp(a, b, flWeight)
+    return {
+        math.floor((b[1] - a[1]) * flWeight) + a[1],
+        math.floor((b[2] - a[2]) * flWeight) + a[2],
+        math.floor((b[3] - a[3]) * flWeight) + a[3],
+        math.floor((b[4] - a[4]) * flWeight) + a[4]
+    };
+end
+
 callbacks.Register("Draw", function()
     local pLocalPlayer = entities.GetLocalPlayer();
-    local pLocal = entities.GetLocalPlayer()
-    if not pLocal or not pLocal:IsAlive() then
-        return
+    local netchannel = clientstate.GetNetChannel();
+    if(not pLocalPlayer or not pLocalPlayer:IsAlive() or not netchannel)then
+        return;
     end
 
-    local goal_latency = gui.GetValue("Fake Latency Value (ms)")
-    local fake_latency = math.min(math.floor((clientstate.GetLatencyIn() or 0) * 1000) / goal_latency, 1)
+    local aWhite = { 255, 255, 255, 200 };
+    local aFPS = { 255, 255, 40, 200 };
+    local aRed = { 255, 0, 50, 255 };
 
-    local aWhite = { 205, 205, 205, 255 };
-    local aRed = { 204, 45, 45, 255 };
+    local flGoalLatency = CLAMP(gui.GetValue("Fake Latency Value (ms)"), 0, math.max(0, 800 - netchannel:GetLatency(0) * 1000));
+    local flFakeLatency = CLAMP((netchannel:GetLatency(1) - globals.TickInterval()) * 1000 / flGoalLatency, 0, 1);
 
-    if goal_latency > 50 and fake_latency > 0.25 then
+    if(flGoalLatency > 50 and flFakeLatency > 0.1)then
+        --[[ GS official(?)
+        --157, 196, 29, 255  - on
+        --248, 228, 225, 255 - off
         RendererIndicator({
-            205 - math.floor(46 * fake_latency), 
-            45 + math.floor(159 * fake_latency), 
-            45, 255}, "PING");
+            248 - math.floor(91 * flFakeLatency), 
+            228 - math.floor(32 * flFakeLatency), 
+            225 - math.floor(196 * flFakeLatency), 255}, "PING");
+        ]]
+
+        RendererIndicator(
+            ColorLerp(
+                {247, 119, 99, 255},
+                {157, 196, 29, 255}, 
+                flFakeLatency
+            ), 
+            "PING"
+        );
+
+        --[[ Old
+        RendererIndicator({
+            205 - math.floor(46 * flFakeLatency),
+            45 + math.floor(159 * flFakeLatency),
+            45, 255
+            }, "PING");
+        ]]
     end
 
     if is_ducking then
         RendererIndicator(aWhite, "DUCK");
     end
 
-
-
-    do
-        local iCharge = warp.GetChargedTicks();
-        RendererIndicator((iCharge >= 23) and aWhite or aRed, "DT", iCharge / 23);
-    end
-    
+    local iExploitCharge = warp.GetChargedTicks();
+    RendererIndicator((iExploitCharge >= 23) and aWhite or aRed, "DT", iExploitCharge / 23);
     RendererIndicator((can_crit) and aWhite or aRed, "CRIT");
 
-    if gui.GetValue("Fake Lag") == 1 then
+    if(gui.GetValue("Fake Lag") == 1)then
         RendererIndicator(aWhite, "FL");
     end
 
-    if gui.GetValue("Anti Backstab") == 1 then
+    if(gui.GetValue("Anti Backstab") == 1)then
         RendererIndicator(aWhite, "AB");
     end
 end)
