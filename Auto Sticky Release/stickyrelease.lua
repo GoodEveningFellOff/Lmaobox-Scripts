@@ -7,6 +7,12 @@ local config = {
 
 	-- 1 to 10, Trace explosion every n simulation ticks (default 3).
 	measure_ticks_mod = 3;
+
+	-- Key bind mode (0 = always on, 1 = hold on, 2 = hold off, 3 = toggle)
+	bind_mode = 0;
+
+	-- Key bind key; E_ButtonCode https://lmaobox.net/lua/Lua_Constants/ 
+	bind_key = E_ButtonCode.MOUSE_5;
 };
 
 -- Boring shit ahead!
@@ -294,7 +300,32 @@ local function ShouldReleaseSticky(pObject, flPrimerTime, flExplosionRadius)
 	return false;
 end
 
+local g_bBindState = false;
+local g_iLastPollTick = 0;
+local function GetBindState()
+	if(config.bind_mode == 0)then
+		return true;
+	end
+
+	if(config.bind_mode == 3)then
+		local bPressed, iTick = input.IsButtonPressed(config.bind_key);
+
+		if(bPressed and  iTick ~= g_iLastPollTick)then
+			g_iLastPollTick = iTick;
+			g_bBindState = not g_bBindState;
+		end
+
+		return g_bBindState;
+	end
+
+	return input.IsButtonDown(config.bind_key) ~= (config.bind_mode == 2);
+end
+
 callbacks.Register("CreateMove", function(cmd)
+	if(not GetBindState())then
+		return;
+	end
+
 	local pLocalPlayer = entities.GetLocalPlayer();
 	if(not pLocalPlayer or pLocalPlayer:InCond(7) or not pLocalPlayer:IsAlive())then
 		return;
