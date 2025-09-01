@@ -477,6 +477,7 @@ end
 local PROJECTILE_TYPE_BASIC  = 0;
 local PROJECTILE_TYPE_PSEUDO = 1;
 local PROJECTILE_TYPE_SIMUL  = 2;
+local PROJECTILE_TYPE_STICKY = 3;
 
 local COLLISION_NORMAL         = 0;
 local COLLISION_HEAL_TEAMMATES = 1;
@@ -486,21 +487,80 @@ local COLLISION_NONE           = 4;
 
 local function GetProjectileInformation(...) end
 local function GetSpellInformation(...) end
+local function SetProjectileContext(...) end
 do
 	LOG("Creating GetProjectileInformation");
 	LOG("Creating GetSpellInformation");
 
+	local iCurrentIndex = 0;
+	local ctxProjectile = {
+		m_flWeaponCharge = 0;
+		m_bIsCrouched = false;
+		m_vecOrigin = Vector3(0, 0, 0);
+		m_vecEyePos = Vector3(0, 0, 0);
+		m_vecViewAngles = EulerAngles(0, 0, 0);
+		m_vecFirePos = Vector3(0, 0, 0);
+		m_vecFireAngles = EulerAngles(0, 0, 0);
+		m_pPlayer = nil;
+		m_pWeapon = nil;
+	};
+
 	local aItemDefinitions = {};
-	local function AppendItemDefinitions(iType, ...)
+	local aSpellDefinitions = {};
+	local aProjectileInfo = {};
+	local aSpellInfo = {};
+
+	function SetProjectileContext(pPlayer, vecOrigin, vecShootOffset, vecShootAngles, flWeaponChargeOverride)
+		if(not pPlayer)then
+			return false;
+		end
+
+		local pWeapon = pPlayer:GetPropEntity("m_hActiveWeapon");
+		if(not pWeapon)then
+			return false;
+		end
+		
+		local fPlayerFlags = pPlayer:GetPropInt("m_fFlags") or 0;
+
+		local flWeaponCharge = 0;
+		local stWeaponInfo = aProjectileInfo[aItemDefinitions[pWeapon:GetPropInt("m_iItemDefinitionIndex") or 0]];
+		if(stWeaponInfo and not flWeaponChargeOverride)then
+			if(stWeaponInfo.m_flMaxCharge > 0)then
+				flWeaponCharge = pWeapon:GetChargeBeginTime() or 0;
+				if(flWeaponCharge ~= 0)then
+					flWeaponCharge = globals.CurTime() - flWeaponCharge;
+				end
+
+				flWeaponCharge = flWeaponCharge / stWeaponInfo.m_flMaxCharge;
+			end
+		elseif(flWeaponChargeOverride)then
+			flWeaponCharge = tonumber(flWeaponChargeOverride);
+		end
+
+		local fPlayerFlags = fPlayerFlags or 0;
+
+		ctxProjectile.m_flWeaponCharge = CLAMP(flWeaponCharge, 0, 1);
+		ctxProjectile.m_bIsCrouched = (fPlayerFlags & FL_DUCKING) ~= 0;
+		ctxProjectile.m_vecOrigin = vecOrigin or Vector3(0, 0, 0);
+		ctxProjectile.m_vecEyePos = ctxProjectile.m_vecOrigin + (vecShootOffset or Vector3(0, 0, 0));
+		ctxProjectile.m_vecViewAngles = vecShootAngles or EulerAngles(0, 0, 0);
+		ctxProjectile.m_pPlayer = pPlayer;
+		ctxProjectile.m_pWeapon = pWeapon;
+
+		return true;
+	end
+	
+	local function AppendItemDefinitions(...)
+		iCurrentIndex = iCurrentIndex + 1;
 		for _, i in pairs({...})do
-			aItemDefinitions[i] = iType;
+			aItemDefinitions[i] = iCurrentIndex;
 		end
 	end;
 
-	local aSpellDefinitions = {};
-	local function AppendSpellDefinitions(iType, ...)
+	local function AppendSpellDefinitions(...)
+		iCurrentIndex = iCurrentIndex + 1;
 		for _, i in pairs({...})do
-			aSpellDefinitions[i] = iType;
+			aSpellDefinitions[i] = iCurrentIndex;
 		end
 	end;
 
@@ -525,23 +585,23 @@ do
 			m_flDamageRadius = tbl.flDamageRadius or 0;
 			m_flExplosionRadius = tbl.flExplosionRadius or 0;
 			m_bStopOnHittingEnemy = tbl.bStopOnHittingEnemy ~= false;
-			m_bCharges = tbl.bCharges or false;
+			m_flMaxCharge = tbl.flMaxCharge or 0;
 			m_sModelName = tbl.sModelName or "";
 
-			GetOffset = (not tbl.GetOffset) and (function(self, bDucking, bIsFlipped) 
-				return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z) or self.m_vecOffset;   
-			end) or tbl.GetOffset;  -- self, bDucking, bIsFlipped
+			GetOffset = (not tbl.GetOffset) and (function(self) 
+				return ctxProjectile.m_pWeapon:IsViewModelFlipped() and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z) or self.m_vecOffset;   
+			end) or tbl.GetOffset;
 
-			GetAngleOffset = (not tbl.GetAngleOffset) and (function(self, flChargeBeginTime)
+			GetAngleOffset = (not tbl.GetAngleOffset) and (function(self)
 				return self.m_vecAngleOffset;
-			end) or tbl.GetAngleOffset; -- self, flChargeBeginTime
+			end) or tbl.GetAngleOffset; -- self
 
-			GetFirePosition = tbl.GetFirePosition or function(self, pLocalPlayer, vecLocalView, vecViewAngles, bIsFlipped)
+			SetPreFirePosition = tbl.SetPreFirePosition or function(self)
 				local resultTrace = TRACE_HULL( 
-					vecLocalView, 
-					vecLocalView + VEC_ROT(
-						self:GetOffset((pLocalPlayer:GetPropInt("m_fFlags") & FL_DUCKING) ~= 0, bIsFlipped), 
-						vecViewAngles
+					ctxProjectile.m_vecEyePos, 
+					ctxProjectile.m_vecEyePos + VEC_ROT(
+						self:GetOffset(), 
+						ctxProjectile.m_vecViewAngles
 					), 
 					-Vector3(8, 8, 8), 
 					Vector3(8, 8, 8), 
@@ -550,13 +610,49 @@ do
 				return (not resultTrace.startsolid) and resultTrace.endpos or nil;
 			end;
 
-			GetVelocity = (not tbl.GetVelocity) and (function(self, ...) return self.m_vecVelocity; end) or tbl.GetVelocity; -- self, flChargeBeginTime
+			GetVelocity = (not tbl.GetVelocity) and (function(self) return self.m_vecVelocity; end) or tbl.GetVelocity;
 
-			GetAngularVelocity = (not tbl.GetAngularVelocity) and (function(self, ...) return self.m_vecAngularVelocity; end) or tbl.GetAngularVelocity; -- self, flChargeBeginTime
+			GetAngularVelocity = (not tbl.GetAngularVelocity) and (function(self) return self.m_vecAngularVelocity; end) or tbl.GetAngularVelocity;
 
-			GetGravity = (not tbl.GetGravity) and (function(self, ...) return self.m_flGravity; end) or tbl.GetGravity; -- self, flChargeBeginTime
+			GetGravity = (not tbl.GetGravity) and (function(self) return self.m_flGravity; end) or tbl.GetGravity;
 
-			GetLifetime = (not tbl.GetLifetime) and (function(self, ...) return self.m_flLifetime; end) or tbl.GetLifetime; -- self, flChargeBeginTime
+			GetLifetime = (not tbl.GetLifetime) and (function(self) return self.m_flLifetime; end) or tbl.GetLifetime;
+
+			GetExplosionRadius = tbl.GetExplosionRadius or (function(self)
+				if(self.m_flExplosionRadius <= 0)then
+					return 0;
+				end
+
+				return ctxProjectile.m_pWeapon:AttributeHookFloat("mult_explosion_radius", self.m_flExplosionRadius);
+			end);
+
+			GetFirePosition = function(self)
+				return ctxProjectile.m_vecFirePos;
+			end;
+
+			GetFireAngles = function(self)
+				return ctxProjectile.m_vecFireAngles;
+			end;
+
+			UpdateContext = function(self)
+				local vecSource = self:SetPreFirePosition();
+				if(not vecSource)then
+					return false;
+				end
+
+				local vecAngles = ctxProjectile.m_vecViewAngles;
+
+				if(self.m_iAlignDistance > 0)then
+					local vecGoalPoint = ctxProjectile.m_vecEyePos + (vecAngles:Forward() * self.m_iAlignDistance);
+					local res = TRACE_LINE(ctxProjectile.m_vecEyePos, vecGoalPoint, 100679691);
+					vecAngles = (((res.fraction <= 0.1) and vecGoalPoint or res.endpos) - vecSource):Angles();
+				end
+
+				ctxProjectile.m_vecFirePos = vecSource + self.m_vecAbsoluteOffset;
+				ctxProjectile.m_vecFireAngles = vecAngles + self:GetAngleOffset();
+
+				return true;
+			end;
 		};
 	end
 
@@ -581,19 +677,26 @@ do
 		return stReturned;
 	end
 
+	local function DefineStickyProjectileDefinition(tbl)
+		local stReturned = DefineProjectileDefinition(tbl);
+		stReturned.m_iType = PROJECTILE_TYPE_STICKY;
+
+		return stReturned;
+	end
+
 	local function DefineDerivedProjectileDefinition(def, tbl)
 		local stReturned = {};
 		for k, v in pairs(def) do stReturned[k] = v; end
 		for k, v in pairs(tbl) do stReturned[((type(v) ~= "function") and "m_" or "") .. k] = v; end
 
 		if(not tbl.GetOffset and tbl.vecOffset)then
-			stReturned.GetOffset = function(self, bDucking, bIsFlipped) 
-				return bIsFlipped and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z) or self.m_vecOffset; 
+			stReturned.GetOffset = function(self) 
+				return ctxProjectile.m_pWeapon:IsViewModelFlipped() and Vector3(self.m_vecOffset.x, -self.m_vecOffset.y, self.m_vecOffset.z) or self.m_vecOffset; 
 			end;
 		end
 
 		if(not tbl.GetAngleOffset and tbl.vecAngleOffset)then
-			stReturned.GetAngleOffset = function(self, flChargeBeginTime)
+			stReturned.GetAngleOffset = function(self)
 				return self.m_vecAngleOffset;
 			end;
 		end
@@ -617,14 +720,14 @@ do
 		return stReturned;
 	end
 
-	local aProjectileInfo = {};
-	local aSpellInfo = {};
-
-	AppendItemDefinitions(1, 
+	AppendItemDefinitions(
 		18,    -- Rocket Launcher
+		127,   -- The Direct Hit
 		205,   -- Rocket Launcher (Renamed/Strange)
 		228,   -- The Black Box
+		414,   -- The Liberty Launcher
 		658,   -- Festive Rocket Launcher
+		730,   -- The Beggar's Bazooka
 		800,   -- Silver Botkiller Rocket Launcher Mk.I
 		809,   -- Gold Botkiller Rocket Launcher Mk.I
 		889,   -- Rust Botkiller Rocket Launcher Mk.I
@@ -634,6 +737,7 @@ do
 		965,   -- Silver Botkiller Rocket Launcher Mk.II
 		974,   -- Gold Botkiller Rocket Launcher Mk.II
 		1085,  -- Festive Black Box
+		1104,  -- The Air Strike
 		15006, -- Woodland Warrior
 		15014, -- Sand Cannon
 		15028, -- American Pastoral
@@ -647,91 +751,92 @@ do
 		15130, -- High Roller's
 		15150  -- Warhawk 
 	);
-	aProjectileInfo[1] = DefineBasicProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefineBasicProjectileDefinition({
 		vecVelocity = Vector3(1100, 0, 0);
 		vecMaxs = Vector3(0, 0, 0);
 		iAlignDistance = 2000;
 		flExplosionRadius = 146;
 
-		GetOffset = function(self, bDucking, bIsFlipped)
-			return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3);
+		GetOffset = function(self)
+			return Vector3(23.5, 12 * (ctxProjectile.m_pWeapon:IsViewModelFlipped() and -1 or 1), (ctxProjectile.m_bIsCrouched and 8 or -3));
+		end;
+
+		GetVelocity = function(self)
+			local flVelocity = ctxProjectile.m_pWeapon:AttributeHookFloat("mult_projectile_speed", 1100);
+
+			-- This should be AttributeHookInt...
+			local iRocketSpecialist = ctxProjectile.m_pPlayer:AttributeHookFloat("rocket_specialist", 0);
+			if(iRocketSpecialist ~= 0)then
+				flVelocity = CLAMP(flVelocity * (1.15 + ((CLAMP(iRocketSpecialist, 1, 4) - 1) / 3) * 0.45), 0, 3000);
+			end
+
+			if(ctxProjectile.m_pPlayer:GetCarryingRuneType() == 6)then -- RUNE_PRECISION
+				flVelocity = 3000;
+			end
+
+			return Vector3(flVelocity, 0, 0);
+		end;
+
+		GetExplosionRadius = function(self)
+			if(self.m_flExplosionRadius <= 0)then
+				return 0;
+			end
+
+			if(ctxProjectile.m_pPlayer:AttributeHookFloat("rocketjump_attackrate_bonus", 1) ~= 1)then
+				return ctxProjectile.m_pWeapon:AttributeHookFloat("mult_explosion_radius", self.m_flExplosionRadius) * 0.8;
+			end
+
+			return ctxProjectile.m_pWeapon:AttributeHookFloat("mult_explosion_radius", self.m_flExplosionRadius);
 		end;
 	});
+	local iRocketLauncherIndex = iCurrentIndex;
 
-	AppendItemDefinitions(2,
+	AppendItemDefinitions(
 		237 -- Rocket Jumper
 	);
-	aProjectileInfo[2] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iRocketLauncherIndex], {
 		iCollisionType = COLLISION_NONE;
 	});
 
-	AppendItemDefinitions(3,
-		730 -- The Beggar's Bazooka
-	);
-	aProjectileInfo[3] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		flExplosionRadius = 116.8;
-	});
-
-	AppendItemDefinitions(4,
-		1104 -- The Air Strike
-	);
-	aProjectileInfo[4] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		flExplosionRadius = 131.4;
-	});
-	
-	AppendItemDefinitions(5, 
-		127 -- The Direct Hit
-	);
-	aProjectileInfo[5] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		vecVelocity = Vector3(2000, 0, 0);
-		flExplosionRadius = 44;
-	});
-
-	AppendItemDefinitions(6,
-		414 -- The Liberty Launcher
-	);
-	aProjectileInfo[6] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		vecVelocity = Vector3(1550, 0, 0);
-	});
-
-	AppendItemDefinitions(7,
+	AppendItemDefinitions(
 		513 -- The Original
 	);
-	aProjectileInfo[7] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		GetOffset = function(self, bDucking)
-			return Vector3(23.5, 0, bDucking and 8 or -3);
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iRocketLauncherIndex], {
+		GetOffset = function(self)
+			return Vector3(23.5, 0, ctxProjectile.m_bIsCrouched and 8 or -3);
 		end;
 	});
 
 	-- https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/game/shared/tf/tf_weapon_dragons_fury.cpp
-	AppendItemDefinitions(8,
+	AppendItemDefinitions(
 		1178 -- Dragon's Fury
 	);
-	aProjectileInfo[8] = DefineBasicProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefineBasicProjectileDefinition({
 		vecVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(1, 1, 1);
 		flDamageRadius = 22.5;
 		flLifetime = 0.835;
 
-		GetOffset = function(self, bDucking, bIsFlipped)
+		GetOffset = function(self)
 			return Vector3(3, 7, -9);
 		end;
 	});
 	
-	AppendItemDefinitions(9, 
+	AppendItemDefinitions( 
 		442 -- The Righteous Bison
 	);
-	aProjectileInfo[9] = DefineBasicProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefineBasicProjectileDefinition({
 		vecVelocity = Vector3(1200, 0, 0);
 		vecMaxs = Vector3(1, 1, 1);
 		iAlignDistance = 2000;
 
-		GetOffset = function(self, bDucking, bIsFlipped)
-			return Vector3(23.5, -8 * (bIsFlipped and -1 or 1), bDucking and 8 or -3);
+		GetOffset = function(self)
+			return Vector3(23.5, -8 * (ctxProjectile.m_pWeapon:IsViewModelFlipped() and -1 or 1), ctxProjectile.m_bIsCrouched and 8 or -3);
 		end;
 	});
+	local iRighteousBisonIndex = iCurrentIndex;
 
-	AppendItemDefinitions(10,
+	AppendItemDefinitions(
 		20,    -- Stickybomb Launcher
 		207,   -- Stickybomb Launcher (Renamed/Strange) 	
 		661,   -- Festive Stickybomb Launcher 	
@@ -757,45 +862,44 @@ do
 		15138, -- Dressed to Kill 	
 		15155  -- Blitzkrieg 	 
 	);
-	aProjectileInfo[10] = DefineSimulProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefineSimulProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecAngularVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(3.5, 3.5, 3.5);
-		bCharges = true;
 		flExplosionRadius = 150;
+		flMaxCharge = 4;
 		sModelName = "models/weapons/w_models/w_stickybomb.mdl";
 
-		GetVelocity = function(self, flChargeBeginTime)
-			return Vector3(900 + CLAMP(flChargeBeginTime / 4, 0, 1) * 1500, 0, 200);
+		GetVelocity = function(self)
+			return Vector3(900 + ctxProjectile.m_flWeaponCharge * 1500, 0, 200);
 		end;
 	});
+	local iStickybombLauncherIndex = iCurrentIndex;
 
-	AppendItemDefinitions(11, 
+	AppendItemDefinitions( 
 		1150 -- The Quickiebomb Launcher
 	);
-	aProjectileInfo[11] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iStickybombLauncherIndex], {
+		flMaxCharge = 1.2;
 		sModelName = "models/workshop/weapons/c_models/c_kingmaker_sticky/w_kingmaker_stickybomb.mdl";
-
-		GetVelocity = function(self, flChargeBeginTime)
-			return Vector3(900 + CLAMP(flChargeBeginTime / 1.2, 0, 1) * 1500, 0, 200); 
-		end;
 	});
 
-	AppendItemDefinitions(12, 
+	AppendItemDefinitions( 
 		130 -- The Scottish Resistance
 	);
-	aProjectileInfo[12] = DefineDerivedProjectileDefinition(aProjectileInfo[10], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iStickybombLauncherIndex], {
 		sModelName = "models/weapons/w_models/w_stickybomb_d.mdl";
 	});
+	local iScottishResistanceIndex = iCurrentIndex;
 
-	AppendItemDefinitions(13, 
+	AppendItemDefinitions(
 		265 -- Sticky Jumper
 	);
-	aProjectileInfo[13] = DefineDerivedProjectileDefinition(aProjectileInfo[12], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iScottishResistanceIndex], {
 		iCollisionType = COLLISION_NONE;
 	});
 
-	AppendItemDefinitions(14,
+	AppendItemDefinitions(
 		19,    -- Grenade Launcher
 		206,   -- Grenade Launcher (Renamed/Strange)
 		1007,  -- Festive Grenade Launcher
@@ -808,103 +912,116 @@ do
 		15142, -- Warhawk
 		15158  -- Butcher Bird 
 	);
-	aProjectileInfo[14] = DefineSimulProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefineSimulProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
-		vecVelocity = Vector3(1200, 0, 200);
 		vecAngularVelocity = Vector3(600, 0, 0);
 		vecMaxs = Vector3(2, 2, 2);
 		flElasticity = 0.45;
 		flLifetime = 2.175;
 		flExplosionRadius = 146;
 		sModelName = "models/weapons/w_models/w_grenade_grenadelauncher.mdl";
-	});
 
-	AppendItemDefinitions(15,
+		GetVelocity = function(self)
+			if(ctxProjectile.m_pPlayer:GetCarryingRuneType() == 6)then -- RUNE_PRECISION
+				return Vector3(3000, 0, 200);
+			end
+
+			return Vector3(ctxProjectile.m_pWeapon:AttributeHookFloat("mult_projectile_speed", 1200), 0, 200);
+		end;
+	});
+	local iGrenadeLauncherIndex = iCurrentIndex;
+
+	AppendItemDefinitions(
 		1151 -- The Iron Bomber
 	);
-	aProjectileInfo[15] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iGrenadeLauncherIndex], {
 		flElasticity = 0.09;
 		flLifetime = 1.6;
 		flExplosionRadius = 124;
 	});
 
-	AppendItemDefinitions(16,
+	AppendItemDefinitions(
 		308 -- The Loch-n-Load
 	);
-	aProjectileInfo[16] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iGrenadeLauncherIndex], {
 		iType = PROJECTILE_TYPE_PSEUDO;
-		vecVelocity = Vector3(1500, 0, 200);
 		flGravity = 1;
 		flDrag = 0.225;
 		flLifetime = 2.3;
 		flExplosionRadius = 0;
 	});
 
-	AppendItemDefinitions(17,
+	AppendItemDefinitions(
 		996 -- The Loose Cannon
 	);
-	aProjectileInfo[17] = DefineDerivedProjectileDefinition(aProjectileInfo[14], {
-		vecVelocity = Vector3(1440, 0, 200);
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iGrenadeLauncherIndex], {
 		vecMaxs = Vector3(6, 6, 6);
 		bStopOnHittingEnemy = false;
-		bCharges = true;
+		flMaxCharge = 1;
 		sModelName = "models/weapons/w_models/w_cannonball.mdl";
 
-		GetLifetime = function(self, flChargeBeginTime)
-			return 1 * flChargeBeginTime;
+		GetLifetime = function(self)
+			return 1 * ctxProjectile.m_flWeaponCharge;
 		end;
 	});
 
-	AppendItemDefinitions(18,
+	AppendItemDefinitions(
 		56,   -- The Huntsman
 		1005, -- Festive Huntsman
 		1092  -- The Fortified Compound
 	);
-	aProjectileInfo[18] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(23.5, -8, -3);
 		vecMaxs = Vector3(0, 0, 0);
 		iAlignDistance = 2000;
-		bCharges = true;
+		flMaxCharge = 1;
 
-		GetVelocity = function(self, flChargeBeginTime)
-			return Vector3(1800 + CLAMP(flChargeBeginTime, 0, 1) * 800, 0, 0);
+		GetVelocity = function(self)
+			return Vector3(1800 + ctxProjectile.m_flWeaponCharge * 800, 0, 0);
 		end;
 
-		GetGravity = function(self, flChargeBeginTime)
-			return 0.5 - CLAMP(flChargeBeginTime, 0, 1) * 0.4;
+		GetGravity = function(self)
+			return 0.5 - ctxProjectile.m_flWeaponCharge * 0.4;
 		end;
 	});
 
-	AppendItemDefinitions(19,
+	AppendItemDefinitions(
 		39,   -- The Flare Gun
 		351,  -- The Detonator
 		595,  -- The Manmelter
 		1081  -- Festive Flare Gun
 	);
-	aProjectileInfo[19] = DefinePseudoProjectileDefinition({
-		vecVelocity = Vector3(2000, 0, 0);
+	aProjectileInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
 		vecMaxs = Vector3(0, 0, 0);
-		flGravity = 0.3;
 		iAlignDistance = 2000;
 		flCollideWithTeammatesDelay = 0.25;
 
-		GetOffset = function(self, bDucking, bIsFlipped)
-			return Vector3(23.5, 12 * (bIsFlipped and -1 or 1), bDucking and 8 or -3);
+		GetOffset = function(self)
+			return Vector3(23.5, 12 * (ctxProjectile.m_pWeapon:IsViewModelFlipped() and -1 or 1), ctxProjectile.m_bIsCrouched and 8 or -3);
+		end;
+
+		GetVelocity = function(self)
+			return Vector3(ctxProjectile.m_pWeapon:AttributeHookFloat("mult_projectile_speed", 2000), 0, 0);
+		end;
+
+		GetGravity = function(self)
+			return ctxProjectile.m_pWeapon:AttributeHookFloat("mult_projectile_speed", 0.3);
 		end;
 	});
+	local iFlareGunIndex = iCurrentIndex;
 
-	AppendItemDefinitions(20, 
+	AppendItemDefinitions(
 		740 -- The Scorch Shot
 	);
-	aProjectileInfo[20] = DefineDerivedProjectileDefinition(aProjectileInfo[19], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iFlareGunIndex], {
 		flExplosionRadius = 110;
 	});
 
-	AppendItemDefinitions(21, 
+	AppendItemDefinitions(
 		305, -- Crusader's Crossbow
 		1079 -- Festive Crusader's Crossbow
 	);
-	aProjectileInfo[21] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(23.5, -8, -3);
 		vecVelocity = Vector3(2400, 0, 0);
 		vecMaxs = Vector3(3, 3, 3);
@@ -912,22 +1029,23 @@ do
 		iAlignDistance = 2000;
 		iCollisionType = COLLISION_HEAL_TEAMMATES;
 	});
+	local iCrusadersCrossbowIndex = iCurrentIndex;
 
-	AppendItemDefinitions(22, 
+	AppendItemDefinitions(
 		997 -- The Rescue Ranger
 	);
-	aProjectileInfo[22] = DefineDerivedProjectileDefinition(aProjectileInfo[21], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iCrusadersCrossbowIndex], {
 		vecMaxs = Vector3(1, 1, 1);
 		iCollisionType = COLLISION_HEAL_BUILDINGS;
 	});
 
-	AppendItemDefinitions(23,
+	AppendItemDefinitions(
 		17,  -- Syringe Gun
 		36,  -- The Blutsauger
 		204, -- Syringe Gun (Renamed/Strange)
 		412  -- The Overdose
 	);
-	aProjectileInfo[23] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(16, 6, -8);
 		vecVelocity = Vector3(1000, 0, 0);
 		vecMaxs = Vector3(1, 1, 1);
@@ -935,26 +1053,36 @@ do
 		flCollideWithTeammatesDelay = 0;
 	});
 
-	AppendItemDefinitions(24,
+	AppendItemDefinitions(
 		58,   -- Jarate
 		222,  -- Mad Milk
 		1083, -- Festive Jarate
 		1105, -- The Self-Aware Beauty Mark
 		1121  -- Mutated Milk
 	);
-	aProjectileInfo[24] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecVelocity = Vector3(1000, 0, 200);
 		vecMaxs = Vector3(8, 8, 8);
 		flGravity = 1.125;
+		flCollideWithTeammatesDelay = 0.006; 
 		flExplosionRadius = 200;
+
+		GetLifetime = function(self)
+			local flLifetime = ctxProjectile.m_pWeapon:AttributeHookFloat("throwable_detonation_time", 0);
+			if(flLifetime ~= 0)then
+				return flLifetime;
+			end
+
+			return 2;
+		end;
 	});
 
-	AppendItemDefinitions(25,
+	AppendItemDefinitions(
 		812, -- The Flying Guillotine
 		833  -- The Flying Guillotine (Genuine)
 	);
-	aProjectileInfo[25] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(23.5, 8, -3);
 		vecVelocity = Vector3(3000, 0, 300);
 		vecMaxs = Vector3(2, 2, 2);
@@ -962,22 +1090,22 @@ do
 		flDrag = 1.3;
 	});
 
-	AppendItemDefinitions(26,
+	AppendItemDefinitions(
 		44  -- The Sandman
 	);
-	aProjectileInfo[26] = DefineSimulProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefineSimulProjectileDefinition({
 		vecVelocity = Vector3(2985.1118164063, 0, 298.51116943359);
 		vecAngularVelocity = Vector3(0, 50, 0);
 		vecMaxs = Vector3(4.25, 4.25, 4.25);
 		flElasticity = 0.45;
 		sModelName = "models/weapons/w_models/w_baseball.mdl";
 
-		GetFirePosition = function(self, pLocalPlayer, vecLocalView, vecViewAngles, bIsFlipped)
+		SetPreFirePosition = function(self)
 			--https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/shared/tf/tf_weapon_bat.cpp#L232
-			local vecFirePos = pLocalPlayer:GetAbsOrigin() + ((Vector3(0, 0, 50) + (vecViewAngles:Forward() * 32)) * pLocalPlayer:GetPropFloat("m_flModelScale"));
+			local vecFirePos = ctxProjectile.m_vecOrigin + ((Vector3(0, 0, 50) + (ctxProjectile.m_vecViewAngles:Forward() * 32)) * ctxProjectile.m_pPlayer:GetPropFloat("m_flModelScale"));
 
 			local resultTrace = TRACE_HULL( 
-				vecLocalView, 
+				ctxProjectile.m_vecEyePos, 
 				vecFirePos, 
 				-Vector3(8, 8, 8), 
 				Vector3(8, 8, 8), 
@@ -986,11 +1114,12 @@ do
 			return (resultTrace.fraction == 1) and resultTrace.endpos or nil;
 		end;
 	});
+	local iSandmanIndex = iCurrentIndex;
 	
-	AppendItemDefinitions(27,
+	AppendItemDefinitions(
 		648  -- The Wrap Assassin
 	);
-	aProjectileInfo[27] = DefineDerivedProjectileDefinition(aProjectileInfo[26], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iSandmanIndex], {
 		vecMins = Vector3(-2.990180015564, -2.5989532470703, -2.483987569809);
 		vecMaxs = Vector3(2.6593606472015, 2.5989530086517, 2.4839873313904);
 		flElasticity = 0;
@@ -998,28 +1127,28 @@ do
 		sModelName = "models/weapons/c_models/c_xms_festive_ornament.mdl";
 	});
 
-	AppendItemDefinitions(28,
+	AppendItemDefinitions(
 		441 -- The Cow Mangler 5000
 	);
-	aProjectileInfo[28] = DefineDerivedProjectileDefinition(aProjectileInfo[1], {
-		GetOffset = function(self, bDucking, bIsFlipped)
-			return Vector3(23.5, 8 * (bIsFlipped and 1 or -1), bDucking and 8 or -3);
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iRocketLauncherIndex], {
+		GetOffset = function(self)
+			return Vector3(23.5, 8 * (ctxProjectile.m_pWeapon:IsViewModelFlipped() and 1 or -1), ctxProjectile.m_bIsCrouched and 8 or -3);
 		end;
 	});
 
 	--https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/shared/tf/tf_weapon_raygun.cpp#L249
-	AppendItemDefinitions(29,
+	AppendItemDefinitions(
 		588  -- The Pomson 6000	
 	);
-	aProjectileInfo[29] = DefineDerivedProjectileDefinition(aProjectileInfo[9], {
+	aProjectileInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aProjectileInfo[iRighteousBisonIndex], {
 		vecAbsoluteOffset = Vector3(0, 0, -13);
 		flCollideWithTeammatesDelay = 0;
 	});
 
-	AppendItemDefinitions(30,
+	AppendItemDefinitions(
 		1180  -- Gas Passer
 	);
-	aProjectileInfo[30] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(16, 8, -6);
 		vecVelocity = Vector3(2000, 0, 200);
 		vecMaxs = Vector3(8, 8, 8);
@@ -1028,10 +1157,10 @@ do
 		flExplosionRadius = 200;
 	});
 
-	AppendItemDefinitions(31,
+	AppendItemDefinitions(
 		528  -- The Short Circuit
 	);
-	aProjectileInfo[31] = DefineBasicProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefineBasicProjectileDefinition({
 		vecOffset = Vector3(40, 15, -10);
 		vecVelocity = Vector3(700, 0, 0);
 		vecMaxs = Vector3(1, 1, 1);
@@ -1040,7 +1169,7 @@ do
 		flDamageRadius = 100;
 	});
 
-	AppendItemDefinitions(32,
+	AppendItemDefinitions(
 		42,   -- Sandvich
 		159,  -- The Dalokohs Bar
 		311,  -- The Buffalo Steak Sandvich
@@ -1049,7 +1178,7 @@ do
 		1002, -- Festive Sandvich
 		1190  -- Second Banana
 	);
-	aProjectileInfo[32] = DefinePseudoProjectileDefinition({
+	aProjectileInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
 		vecOffset = Vector3(0, 0, -8);
 		vecAngleOffset = Vector3(-10, 0, 0);
 		vecVelocity = Vector3(500, 0, 0);
@@ -1059,86 +1188,87 @@ do
 		iCollisionType = COLLISION_HEAL_HURT;
 	});
 
-	AppendSpellDefinitions(1,
+	iCurrentIndex = 0;
+
+	AppendSpellDefinitions(
 		9 -- TF_Spell_Meteor
 	);
-	aSpellInfo[1] = DefinePseudoProjectileDefinition({
+	aSpellInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
 		vecVelocity = Vector3(1000, 0, 200);
 		vecMaxs = Vector3(0, 0, 0);
 		flGravity = 1.025;
 		flDrag = 0.15;
 		flExplosionRadius = 200;
 
-		GetOffset = function(self, bDucking, bIsFlipped)
+		GetOffset = function(self)
 			return Vector3(3, 7, -9);
 		end;
 	});
+	local iMeteorSpellIndex = iCurrentIndex;
 
-	AppendSpellDefinitions(2,
+	AppendSpellDefinitions(
 		1, -- TF_Spell_Bats
 		6  -- TF_Spell_Teleport
 	);
-	aSpellInfo[2] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
+	aSpellInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aSpellInfo[iMeteorSpellIndex], {
 		vecMins = Vector3(-0.019999999552965, -0.019999999552965, -0.019999999552965);
 		vecMaxs = Vector3(0.019999999552965, 0.019999999552965, 0.019999999552965);
 		flExplosionRadius = 250;
 	});
 
-	AppendSpellDefinitions(3,
+	AppendSpellDefinitions(
 		3 -- TF_Spell_MIRV
 	);
-	aSpellInfo[3] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
+	aSpellInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aSpellInfo[iMeteorSpellIndex], {
 		vecMaxs = Vector3(1.5, 1.5, 1.5);
 		flDrag = 0.525;
 	});
 
-	AppendSpellDefinitions(4,
+	AppendSpellDefinitions(
 		10 -- TF_Spell_SpawnBoss
 	);
-	aSpellInfo[4] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
+	aSpellInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aSpellInfo[iMeteorSpellIndex], {
 		vecMaxs = Vector3(3.0, 3.0, 3.0);
 		flDrag = 0.35;
 	});
+	local iSpawnBossSpellIndex = iCurrentIndex;
 
-	AppendSpellDefinitions(5,
+	AppendSpellDefinitions(
 		11 -- TF_Spell_SkeletonHorde
 	);
-	aSpellInfo[5] = DefineDerivedProjectileDefinition(aSpellInfo[4], {
+	aSpellInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aSpellInfo[iSpawnBossSpellIndex], {
 		vecMaxs = Vector3(2.0, 2.0, 2.0);
 	});
 
-	AppendSpellDefinitions(6,
+	AppendSpellDefinitions(
 		0 -- TF_Spell_Fireball
 	);
-	aSpellInfo[6] = DefineDerivedProjectileDefinition(aSpellInfo[1], {
+	aSpellInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aSpellInfo[iMeteorSpellIndex], {
 		iType = PROJECTILE_TYPE_BASIC;
 		vecVelocity = Vector3(1200, 0, 0);
 	});
+	local iFireballSpellIndex = iCurrentIndex;
 
-	AppendSpellDefinitions(7,
+	AppendSpellDefinitions(
 		7 -- TF_Spell_LightningBall
 	);
-	aSpellInfo[7] = DefineDerivedProjectileDefinition(aSpellInfo[6], {
+	aSpellInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aSpellInfo[iFireballSpellIndex], {
 		vecVelocity = Vector3(480, 0, 0);
 	});
 
-	AppendSpellDefinitions(8,
+	AppendSpellDefinitions(
 		12 -- TF_Spell_Fireball
 	);
-	aSpellInfo[8] = DefineDerivedProjectileDefinition(aSpellInfo[6], {
+	aSpellInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aSpellInfo[iFireballSpellIndex], {
 		vecVelocity = Vector3(1500, 0, 0);
 	});
 
-	function GetProjectileInformation(i)
-		return aProjectileInfo[aItemDefinitions[i or 0]];	
+	function GetProjectileInformation()
+		return aProjectileInfo[aItemDefinitions[ctxProjectile.m_pWeapon:GetPropInt("m_iItemDefinitionIndex") or 0]];	
 	end
 
-	function GetSpellInformation(pLocalPlayer)
-		if(not pLocalPlayer)then
-			return;
-		end
-
-		local pSpellBook = pLocalPlayer:GetEntityForLoadoutSlot(9); -- LOADOUT_POSITION_ACTION
+	function GetSpellInformation()
+		local pSpellBook = ctxProjectile.m_pPlayer:GetEntityForLoadoutSlot(9); -- LOADOUT_POSITION_ACTION
 		if(not pSpellBook or not pSpellBook:IsValid() or pSpellBook:GetClass() ~= "CTFSpellBook")then--pSpellBook:GetWeaponID() ~= 97)then -- TF_WEAPON_SPELLBOOK
 			return;
 		end
@@ -1832,13 +1962,13 @@ callbacks.Register("Draw", function()
 
 	g_iLocalTeamNumber = pLocalPlayer:GetTeamNumber();
 
-	local pLocalWeapon = pLocalPlayer:GetPropEntity("m_hActiveWeapon");
-	if(not pLocalWeapon)then
+	if(not SetProjectileContext(pLocalPlayer, pLocalPlayer:GetAbsOrigin(), 
+		pLocalPlayer:GetPropVector("localdata", "m_vecViewOffset[0]"), engine.GetViewAngles()))then
 		return;
 	end
-
-	local stProjectileInfo = GetProjectileInformation(pLocalWeapon:GetPropInt("m_iItemDefinitionIndex"));
-	local stSpellInfo = GetSpellInformation(pLocalPlayer);
+	
+	local stProjectileInfo = GetProjectileInformation();
+	local stSpellInfo = GetSpellInformation();
 	local stInfo = nil;
 	if(g_bSpellPreferState)then
 		stInfo = stSpellInfo or stProjectileInfo;
@@ -1850,29 +1980,12 @@ callbacks.Register("Draw", function()
 		return;
 	end
 
-	local flChargeBeginTime = 0;
-	if(stInfo.m_bCharges)then
-		flChargeBeginTime = pLocalWeapon:GetChargeBeginTime() or 0;
-		if(flChargeBeginTime ~= 0)then
-			flChargeBeginTime = globals.CurTime() - flChargeBeginTime;
-		end
-	end
-
-	local vecLocalView = pLocalPlayer:GetAbsOrigin() + pLocalPlayer:GetPropVector("localdata", "m_vecViewOffset[0]");
-	local vecViewAngles = engine.GetViewAngles();
-	local vecSource = stInfo:GetFirePosition(pLocalPlayer, vecLocalView, vecViewAngles, pLocalWeapon:IsViewModelFlipped());
-	if(not vecSource)then
+	if(not stInfo:UpdateContext())then
 		return;
 	end
 
-	if(stInfo.m_iAlignDistance > 0)then
-		local vecGoalPoint = vecLocalView + (vecViewAngles:Forward() * stInfo.m_iAlignDistance);
-		local res = TRACE_LINE(vecLocalView, vecGoalPoint, 100679691);
-		vecViewAngles = (((res.fraction <= 0.1) and vecGoalPoint or res.endpos) - vecSource):Angles();
-	end
-
-	vecViewAngles = vecViewAngles + stInfo:GetAngleOffset(flChargeBeginTime);
-	vecSource = vecSource + stInfo.m_vecAbsoluteOffset;
+	local vecSource = stInfo:GetFirePosition();
+	local vecAngles = stInfo:GetFireAngles();
 
 	TrajectoryLine:Insert(vecSource);
 
@@ -1880,12 +1993,12 @@ callbacks.Register("Draw", function()
 	if(stInfo.m_iType == PROJECTILE_TYPE_BASIC)then
 		bDied = DoBasicProjectileTrace(
 			vecSource,
-			vecViewAngles:Forward(),
-			stInfo:GetVelocity(flChargeBeginTime),
+			vecAngles:Forward(),
+			stInfo:GetVelocity(),
 			stInfo.m_vecMins,
 			stInfo.m_vecMaxs,
 			stInfo.m_flCollideWithTeammatesDelay,
-			stInfo:GetLifetime(flChargeBeginTime),
+			stInfo:GetLifetime(),
 			stInfo.m_bStopOnHittingEnemy,
 			stInfo.m_flDamageRadius,
 			stInfo.m_iTraceMask,
@@ -1895,13 +2008,13 @@ callbacks.Register("Draw", function()
 	elseif(stInfo.m_iType == PROJECTILE_TYPE_PSEUDO)then
 		bDied = DoPseudoProjectileTrace(
 			vecSource,
-			VEC_ROT(stInfo:GetVelocity(flChargeBeginTime), vecViewAngles),
-			stInfo:GetGravity(flChargeBeginTime),
+			VEC_ROT(stInfo:GetVelocity(), vecAngles),
+			stInfo:GetGravity(),
 			stInfo.m_flDrag,
 			stInfo.m_vecMins,
 			stInfo.m_vecMaxs,
 			stInfo.m_flCollideWithTeammatesDelay,
-			stInfo:GetLifetime(flChargeBeginTime),
+			stInfo:GetLifetime(),
 			stInfo.m_bStopOnHittingEnemy,
 			stInfo.m_iTraceMask,
 			stInfo.m_iCollisionType
@@ -1909,8 +2022,8 @@ callbacks.Register("Draw", function()
 
 	elseif(stInfo.m_iType == PROJECTILE_TYPE_SIMUL)then
 		local pObject = GetPhysicsObject(stInfo.m_sModelName);
-		pObject:SetPosition(vecSource, vecViewAngles, true);
-		pObject:SetVelocity(VEC_ROT(stInfo:GetVelocity(flChargeBeginTime), vecViewAngles), stInfo:GetAngularVelocity(flChargeBeginTime));
+		pObject:SetPosition(vecSource, vecAngles, true);
+		pObject:SetVelocity(VEC_ROT(stInfo:GetVelocity(), vecAngles), stInfo:GetAngularVelocity());
 
 		bDied = DoSimulProjectileTrace(
 			pObject,
@@ -1918,7 +2031,7 @@ callbacks.Register("Draw", function()
 			stInfo.m_vecMins,
 			stInfo.m_vecMaxs,
 			stInfo.m_flCollideWithTeammatesDelay,
-			stInfo:GetLifetime(flChargeBeginTime),
+			stInfo:GetLifetime(),
 			stInfo.m_bStopOnHittingEnemy,
 			stInfo.m_iTraceMask,
 			stInfo.m_iCollisionType
@@ -1932,7 +2045,7 @@ callbacks.Register("Draw", function()
 		g_vEndOrigin = ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1];
 
 		if(not ImpactMarkers.m_bIsHit and stInfo.m_iCollisionType ~= COLLISION_NONE and bDied)then
-			ImpactMarkers.m_bIsHit = CanDealRadialDamage(stInfo.m_flExplosionRadius, ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1]);
+			ImpactMarkers.m_bIsHit = CanDealRadialDamage(stInfo:GetExplosionRadius(), ImpactMarkers.m_aPositions[ImpactMarkers.m_iSize][1]);
 		end
 	end
 
