@@ -740,7 +740,7 @@ do
 		vecMins = Vector3(-6.438000202179, -3.5, -6.1882195472717);
 		vecMaxs = Vector3(6.6380000114441, 3.5, 6.3878774642944);
 		flCollideWithTeammatesDelay = 9999.0;
-		flDrag = 0.75;
+		flDrag = 0.575;
 		flLifetime = 2.5;
 
 		GetVelocity = function(self)
