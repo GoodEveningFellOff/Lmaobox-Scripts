@@ -79,6 +79,7 @@ local OUTLINED_RECT = draw.OutlinedRect;
 local COLOR = draw.Color;
 
 local textureFill = draw.CreateTextureRGBA(string.char(255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255), 2, 2);
+local g_bIsZombieInfection = false;
 local g_iPolygonTexture;
 do
 	local iRad = 128;
@@ -487,10 +488,12 @@ local COLLISION_NONE           = 4;
 
 local function GetProjectileInformation(...) end
 local function GetSpellInformation(...) end
+local function GetZombieInformation(...) end
 local function SetProjectileContext(...) end
 do
 	LOG("Creating GetProjectileInformation");
 	LOG("Creating GetSpellInformation");
+	LOG("Creating GetZombieInformation");
 
 	local iCurrentIndex = 0;
 	local ctxProjectile = {
@@ -507,8 +510,10 @@ do
 
 	local aItemDefinitions = {};
 	local aSpellDefinitions = {};
+	local aZombieDefinitions = {};
 	local aProjectileInfo = {};
 	local aSpellInfo = {};
+	local aZombieInfo = {};
 
 	function SetProjectileContext(pPlayer, vecOrigin, vecShootOffset, vecShootAngles, flWeaponChargeOverride)
 		if(not pPlayer)then
@@ -561,6 +566,13 @@ do
 		iCurrentIndex = iCurrentIndex + 1;
 		for _, i in pairs({...})do
 			aSpellDefinitions[i] = iCurrentIndex;
+		end
+	end;
+
+	local function AppendZombieDefinitions(...)
+		iCurrentIndex = iCurrentIndex + 1;
+		for _, i in pairs({...})do
+			aZombieDefinitions[i] = iCurrentIndex;
 		end
 	end;
 
@@ -720,6 +732,60 @@ do
 		return stReturned;
 	end
 
+	AppendZombieDefinitions(
+		2 -- TF2_Sniper
+	);
+	aZombieInfo[iCurrentIndex] = DefinePseudoProjectileDefinition({
+		vecOffset = Vector3(50, 0, 0);
+		vecMins = Vector3(-6.438000202179, -3.5, -6.1882195472717);
+		vecMaxs = Vector3(6.6380000114441, 3.5, 6.3878774642944);
+		flCollideWithTeammatesDelay = 9999.0;
+		flDrag = 0.75;
+		flLifetime = 2.5;
+
+		GetVelocity = function(self)
+			local vecBaseVelocity = ctxProjectile.m_pPlayer:EstimateAbsVelocity();
+			return Vector3(
+				ctxProjectile.m_vecViewAngles:Forward():Dot(vecBaseVelocity) + 2000,
+				ctxProjectile.m_vecViewAngles:Right():Dot(vecBaseVelocity),
+				ctxProjectile.m_vecViewAngles:Up():Dot(vecBaseVelocity)
+			);
+		end;
+
+		GetGravity = function(self)
+			return 1.05;
+		end;
+
+		GetExplosionRadius = function(self)
+			return 80;
+		end;
+	});
+	local iZombieSpitIndex = iCurrentIndex;
+
+	AppendZombieDefinitions(
+		9 -- TF2_Engineer
+	);
+	aZombieInfo[iCurrentIndex] = DefineDerivedProjectileDefinition(aZombieInfo[iZombieSpitIndex], {
+		vecOffset = Vector3(-20, 0, 0);
+		flDrag = 0.41;
+		iCollisionType = COLLISION_NONE;
+		flLifetime = 3.5;
+
+		GetVelocity = function(self)
+			local vecBaseVelocity = ctxProjectile.m_pPlayer:EstimateAbsVelocity();
+			return Vector3(
+				ctxProjectile.m_vecViewAngles:Forward():Dot(vecBaseVelocity) + 1500,
+				ctxProjectile.m_vecViewAngles:Right():Dot(vecBaseVelocity),
+				ctxProjectile.m_vecViewAngles:Up():Dot(vecBaseVelocity)
+			);
+		end;
+
+		GetExplosionRadius = function(self)
+			return 0;
+		end
+	});
+
+	iCurrentIndex = 0;
 	AppendItemDefinitions(
 		18,    -- Rocket Launcher
 		127,   -- The Direct Hit
@@ -1285,8 +1351,13 @@ do
 		return aSpellInfo[aSpellDefinitions[i or 0]];
 	end
 
+	function GetZombieInformation()
+		return aZombieInfo[aZombieDefinitions[ctxProjectile.m_pPlayer:GetPropInt("m_iClass") or 0]];
+	end
+
 	LOG("GetProjectileInformation ready!");
 	LOG("GetSpellInformation ready!");
+	LOG("GetZombieInformation ready!");
 end
 
 local g_flTraceInterval = CLAMP(config.measure_segment_size, 0.5, 8) / 66;
@@ -1698,6 +1769,7 @@ local function DoPseudoProjectileTrace(
 
 			local iCollisionGroup = pEntity:GetPropInt("m_CollisionGroup");
 			if(iCollisionGroup == 25 or   -- TFCOLLISION_GROUP_RESPAWNROOMS 
+				iCollisionGroup == 13 or -- COLLISION_GROUP_PROJECTILE
 				iCollisionGroup == 1)then -- COLLISION_GROUP_DEBRIS
 				return false;
 			end
@@ -1966,15 +2038,21 @@ callbacks.Register("Draw", function()
 		pLocalPlayer:GetPropVector("localdata", "m_vecViewOffset[0]"), engine.GetViewAngles()))then
 		return;
 	end
-	
-	local stProjectileInfo = GetProjectileInformation();
-	local stSpellInfo = GetSpellInformation();
+
 	local stInfo = nil;
-	if(g_bSpellPreferState)then
-		stInfo = stSpellInfo or stProjectileInfo;
+	if(g_bIsZombieInfection and g_iLocalTeamNumber == 3)then -- Blue
+		stInfo = GetZombieInformation();
 	else
-		stInfo = stProjectileInfo or stSpellInfo;
+		local stProjectileInfo = GetProjectileInformation();
+		local stSpellInfo = GetSpellInformation();
+		if(g_bSpellPreferState)then
+			stInfo = stSpellInfo or stProjectileInfo;
+		else
+			stInfo = stProjectileInfo or stSpellInfo;
+		end
 	end
+	
+	
 
 	if(not stInfo)then
 		return;
@@ -2088,6 +2166,14 @@ callbacks.Register("Unload", function()
 	draw.DeleteTexture(g_iPolygonTexture);
 	draw.DeleteTexture(textureFill);
 	draw.DeleteTexture(ImpactMarkers.m_iTexture);
-end)
+end);
+
+callbacks.Register("FrameStageNotify", function(iStage)
+	if(iStage ~= 4)then -- FRAME_NET_UPDATE_END
+		return;
+	end
+
+	g_bIsZombieInfection = (engine.GetMapName() or ""):gsub(".*/", ""):find("zi_") == 1;
+end);
 
 LOG("Script fully loaded!");
