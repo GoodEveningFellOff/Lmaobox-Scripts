@@ -26,7 +26,14 @@ local config = {
     gui = Rainbow(1, 0.8, 1, 255);
     hands = Disabled();
     anti_aim_indicator = Disabled();
+
+    -- Don't use rainbow for night mode.
+    night_mode = Static(210, 210, 200, 255);
 };
+
+if(type(config.night_mode) == "table")then
+    error("Don't use rainbow for night mode color, will lag game!", 2);
+end
 
 local g_bOnBlueTeam = false;
 
@@ -41,6 +48,7 @@ local g_aSetData = {
         ["gui color"] = config.gui;
         ["hands color"] = config.hands;
         ["anti aim indicator color"] = config.anti_aim_indicator;
+        ["night mode color"] = config.night_mode;
     };
 
     [false] = {
@@ -53,6 +61,7 @@ local g_aSetData = {
         ["gui color"] = config.gui;
         ["hands color"] = config.hands;
         ["anti aim indicator color"] = config.anti_aim_indicator;
+        ["night mode color"] = config.night_mode;
     };
 };
 
@@ -79,6 +88,6 @@ callbacks.Register("Draw", function()
             if(iValue ~= iNewColor)then
                 gui.SetValue(sElement, iNewColor);
             end
-        end    
+        end
     end
 end);
